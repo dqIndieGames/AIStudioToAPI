@@ -231,6 +231,11 @@ class RequestProcessor {
                     }
                 }
 
+                // adapt gemini 3 pro preview
+                if (bodyObj.generationConfig?.thinkingConfig?.thinkingLevel) {
+                    delete bodyObj.generationConfig.thinkingConfig.thinkingLevel;
+                }
+
                 config.body = JSON.stringify(bodyObj);
             } catch (e) {
                 Logger.output("Error occurred while processing request body:", e.message);
