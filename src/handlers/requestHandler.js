@@ -68,6 +68,24 @@ class RequestHandler {
     async processRequest(req, res) {
         const requestId = this._generateRequestId();
 
+        // Handle usage-based account switching
+        const isGenerativeRequest
+            = req.method === "POST"
+            && (req.path.includes("generateContent")
+                || req.path.includes("streamGenerateContent"));
+
+        if (isGenerativeRequest) {
+            const usageCount = this.authSwitcher.incrementUsageCount();
+            if (usageCount > 0) {
+                this.logger.info(
+                    `[Request] Generation request - account rotation count: ${usageCount}/${this.config.switchOnUses} (Current account: ${this.currentAuthIndex})`
+                );
+                if (this.authSwitcher.shouldSwitchByUsage()) {
+                    this.needsSwitchingAfterRequest = true;
+                }
+            }
+        }
+
         res.on("close", () => {
             if (!res.writableEnded) {
                 this.logger.warn(
@@ -118,24 +136,6 @@ class RequestHandler {
                 503,
                 "Server undergoing internal maintenance (account switching/recovery), please try again later."
             );
-        }
-
-        // Handle usage-based account switching
-        const isGenerativeRequest
-            = req.method === "POST"
-            && (req.path.includes("generateContent")
-                || req.path.includes("streamGenerateContent"));
-
-        if (isGenerativeRequest) {
-            const usageCount = this.authSwitcher.incrementUsageCount();
-            if (usageCount > 0) {
-                this.logger.info(
-                    `[Request] Generation request - account rotation count: ${usageCount}/${this.config.switchOnUses} (Current account: ${this.currentAuthIndex})`
-                );
-                if (this.authSwitcher.shouldSwitchByUsage()) {
-                    this.needsSwitchingAfterRequest = true;
-                }
-            }
         }
 
         const proxyRequest = this._buildProxyRequest(req, requestId);

@@ -168,8 +168,8 @@ class AuthSwitcher {
     }
 
     async handleRequestFailureAndSwitch(errorDetails, sendErrorCallback) {
+        this.failureCount++;
         if (this.config.failureThreshold > 0) {
-            this.failureCount++;
             this.logger.warn(
                 `⚠️ [Auth] Request failed - failure count: ${this.failureCount}/${this.config.failureThreshold} (Current account index: ${this.currentAuthIndex})`
             );
@@ -218,11 +218,8 @@ class AuthSwitcher {
     }
 
     incrementUsageCount() {
-        if (this.config.switchOnUses > 0) {
-            this.usageCount++;
-            return this.usageCount;
-        }
-        return 0;
+        this.usageCount++;
+        return this.usageCount;
     }
 
     shouldSwitchByUsage() {

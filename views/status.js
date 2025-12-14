@@ -397,7 +397,7 @@ const updateContent = () => {
                 + '<span class="label">' + t('apiKey') + '</span>: ' + data.status.apiKeySource + '\n'
                 + '--- ' + t('accountStatus') + ' ---\n'
                 + '<span class="label">' + t('currentAccount') + '</span>: #' + data.status.currentAuthIndex + ' (' + data.status.currentAccountName + ')\n'
-                + +'<span class="label">' + t('usageCount') + '</span>: ' + data.status.usageCount + '\n'
+                + '<span class="label">' + t('usageCount') + '</span>: ' + data.status.usageCount + '\n'
                 + '<span class="label">' + t('consecutiveFailures') + '</span>: ' + data.status.failureCount + '\n'
                 + '<span class="label">' + t('totalScanned') + '</span>: ' + data.status.initialIndices + '\n'
                 + accountDetailsHtml + '\n'

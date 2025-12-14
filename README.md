@@ -194,7 +194,7 @@ This endpoint is forwarded to the official Gemini API format endpoint.
 | `FORCE_WEB_SEARCH` | Force enable web search for all requests. | `false` |
 | `FORCE_URL_CONTEXT` | Force enable URL context for all requests. | `false` |
 
-### 🧠 Model Configuration
+### 🧠 Model List Configuration
 
 Edit `configs/models.json` to customize available models and their settings.
 

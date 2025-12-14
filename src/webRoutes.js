@@ -379,6 +379,14 @@ class WebRoutes {
         const currentAuthIndex = requestHandler.currentAuthIndex;
         const currentAccountName = accountNameMap.get(currentAuthIndex) || "N/A";
 
+        const usageCount = config.switchOnUses > 0
+            ? `${requestHandler.usageCount} / ${config.switchOnUses}`
+            : requestHandler.usageCount;
+
+        const failureCount = config.failureThreshold > 0
+            ? `${requestHandler.failureCount} / ${config.failureThreshold}`
+            : requestHandler.failureCount;
+
         return {
             logCount: logs.length,
             logs: logs.join("\n"),
@@ -388,8 +396,7 @@ class WebRoutes {
                 browserConnected: !!browserManager.browser,
                 currentAccountName,
                 currentAuthIndex,
-                failureCount: `${requestHandler.failureCount} / ${config.failureThreshold > 0 ? config.failureThreshold : "N/A"
-                }`,
+                failureCount,
                 forceThinking: this.serverSystem.forceThinking ? "✅ Enabled" : "❌ Disabled",
                 forceUrlContext: this.serverSystem.forceUrlContext ? "✅ Enabled" : "❌ Disabled",
                 forceWebSearch: this.serverSystem.forceWebSearch ? "✅ Enabled" : "❌ Disabled",
@@ -402,8 +409,7 @@ class WebRoutes {
                 invalidIndices: `[${invalidIndices.join(", ")}] (Total: ${invalidIndices.length
                 })`,
                 streamingMode: `${this.serverSystem.streamingMode} (only applies when streaming is enabled)`,
-                usageCount: `${requestHandler.usageCount} / ${config.switchOnUses > 0 ? config.switchOnUses : "N/A"
-                }`,
+                usageCount,
             },
         };
     }
@@ -441,6 +447,14 @@ class WebRoutes {
 
         const currentAccountName = accountNameMap.get(currentAuthIndex) || "N/A";
 
+        const usageCount = config.switchOnUses > 0
+            ? `${requestHandler.usageCount} / ${config.switchOnUses}`
+            : requestHandler.usageCount;
+
+        const failureCount = config.failureThreshold > 0
+            ? `${requestHandler.failureCount} / ${config.failureThreshold}`
+            : requestHandler.failureCount;
+
         return this._loadTemplate("status.html", {
             accountDetailsHtml,
             accountOptionsHtml,
@@ -449,7 +463,7 @@ class WebRoutes {
             browserConnectedClass: browserManager.browser ? "status-ok" : "status-error",
             currentAccountName: this._escapeHtml(currentAccountName),
             currentAuthIndex,
-            failureCount: `${requestHandler.failureCount} / ${config.failureThreshold > 0 ? config.failureThreshold : "N/A"}`,
+            failureCount,
             forceThinking: this.serverSystem.forceThinking ? "✅ Enabled" : "❌ Disabled",
             forceUrlContext: this.serverSystem.forceUrlContext ? "✅ Enabled" : "❌ Disabled",
             forceWebSearch: this.serverSystem.forceWebSearch ? "✅ Enabled" : "❌ Disabled",
@@ -458,7 +472,7 @@ class WebRoutes {
             logs: this._escapeHtml(logs.join("\n")),
             streamingMode: config.streamingMode,
             totalScannedAccounts: `[${initialIndices.join(", ")}] (Total: ${initialIndices.length})`,
-            usageCount: `${requestHandler.usageCount} / ${config.switchOnUses > 0 ? config.switchOnUses : "N/A"}`,
+            usageCount,
         });
     }
 
