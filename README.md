@@ -179,7 +179,7 @@ This endpoint is forwarded to the official Gemini API format endpoint.
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `MAX_RETRIES` | Maximum number of retries for failed requests. | `3` |
+| `MAX_RETRIES` | Maximum number of retries for failed requests (only effective for fake streaming and non-streaming). | `3` |
 | `RETRY_DELAY` | Delay between retries in milliseconds. | `2000` |
 | `SWITCH_ON_USES` | Number of requests before automatically switching accounts (0 to disable). | `40` |
 | `FAILURE_THRESHOLD` | Number of consecutive failures before switching accounts (0 to disable). | `3` |
@@ -189,7 +189,7 @@ This endpoint is forwarded to the official Gemini API format endpoint.
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `STREAMING_MODE` | Streaming mode. `real` for true streaming, `fake` for simulated streaming. | `real` |
+| `STREAMING_MODE` | Streaming mode. `real` for real streaming, `fake` for fake streaming. | `real` |
 | `FORCE_THINKING` | Force enable thinking mode for all requests. | `false` |
 | `FORCE_WEB_SEARCH` | Force enable web search for all requests. | `false` |
 | `FORCE_URL_CONTEXT` | Force enable URL context for all requests. | `false` |

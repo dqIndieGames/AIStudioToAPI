@@ -179,7 +179,7 @@ sudo docker compose down
 
 | 变量名 | 描述 | 默认值 |
 | :--- | :--- | :--- |
-| `MAX_RETRIES` | 请求失败后的最大重试次数。 | `3` |
+| `MAX_RETRIES` | 请求失败后的最大重试次数（仅对假流式和非流式生效）。 | `3` |
 | `RETRY_DELAY` | 两次重试之间的间隔（毫秒）。 | `2000` |
 | `SWITCH_ON_USES` | 自动切换帐户前允许的请求次数（0 禁用）。 | `40` |
 | `FAILURE_THRESHOLD` | 切换帐户前允许的连续失败次数（0 禁用）。 | `3` |
@@ -189,7 +189,7 @@ sudo docker compose down
 
 | 变量名 | 描述 | 默认值 |
 | :--- | :--- | :--- |
-| `STREAMING_MODE` | 流式传输模式。`real` 为真实流式，`fake` 为模拟流式。 | `real` |
+| `STREAMING_MODE` | 流式传输模式。`real` 为真流式，`fake` 为假流式。 | `real` |
 | `FORCE_THINKING` | 强制为所有请求启用思考模式。 | `false` |
 | `FORCE_WEB_SEARCH` | 强制为所有请求启用网络搜索。 | `false` |
 | `FORCE_URL_CONTEXT` | 强制为所有请求启用 URL 上下文。 | `false` |
