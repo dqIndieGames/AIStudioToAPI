@@ -71,6 +71,10 @@ class StatusRoutes {
             res.status(200).sendFile(this.distIndexPath);
         });
 
+        app.post("/", (req, res) => {
+            res.status(405).json({ error: "Method Not Allowed" });
+        });
+
         app.get("/auth", isAuthenticated, (req, res) => {
             res.sendFile(this.distIndexPath);
         });
