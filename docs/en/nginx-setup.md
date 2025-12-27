@@ -43,6 +43,11 @@ server {
 
         # Disable buffering to support streaming responses
         proxy_buffering off;
+
+	    # WebSocket support (required to access VNC)
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
     }
 }
 ```
@@ -86,6 +91,11 @@ location / {
 
     # Disable buffering
     proxy_buffering off;
+
+	# WebSocket support (required to access VNC)
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
 }
 ```
 
