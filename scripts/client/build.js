@@ -160,7 +160,7 @@ class RequestProcessor {
         let pathSegment = requestSpec.path.startsWith("/") ? requestSpec.path.substring(1) : requestSpec.path;
         const queryParams = new URLSearchParams(requestSpec.query_params);
         if (requestSpec.streaming_mode === "fake") {
-            Logger.output("Fake streaming mode activated, modifying request...");
+            Logger.output("Buffered mode activated (Non-Stream / Fake-Stream), checking request details...");
             if (pathSegment.includes(":streamGenerateContent")) {
                 pathSegment = pathSegment.replace(":streamGenerateContent", ":generateContent");
                 Logger.output(`API path modified to: ${pathSegment}`);
