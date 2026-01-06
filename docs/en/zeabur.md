@@ -7,35 +7,35 @@ This guide will help you deploy the `aistudio-to-api` service on [Zeabur](https:
 
 ## 📦 Deployment Steps
 
-1. **Login**: After logging in, go to [https://zeabur.com/projects](https://zeabur.com/projects).
-2. **Create Project**: Click to create a project and select **Jakarta, Indonesia** as the region.
-3. **Select Service Type**: Choose **Docker Container Image**.
+1. **Login**: Go to [https://zeabur.com/projects](https://zeabur.com/projects) and log in to your account.
+2. **Create Project**: Click the **Create Project** button, and select **Jakarta, Indonesia** as the region.
+3. **Select Service Type**: Select **Docker Container Image**.
 4. **Configure Application**: Fill in the following parameters:
 
    **Image**:
    - **Image Name**: `ghcr.io/ibenzene/aistudio-to-api:latest`
-   - **Username**, **Password**: Leave empty
+   - **Username**: Leave empty
+   - **Password**: Leave empty
 
    **Environment Variables**:
-
-   Click **Add Environment Variable**. **Do NOT click "Expose"**.
-
-   You must set the `API_KEYS` variable. Other variables are optional (refer to the [Configuration](../../README.md#-configuration) section in the main README).
+   - Click the **Add Environment Variable** button.
+   - **Do NOT click "Expose"**.
+   - You must set the `API_KEYS` variable. Other variables are optional (refer to the [Configuration](../../README.md#-configuration) section in the main README).
 
    | Name       | Value                 | Description                                |
    | :--------- | :-------------------- | :----------------------------------------- |
    | `API_KEYS` | `your-secret-key-123` | **Required**. Define your own access keys. |
 
    **Port**:
-   - Click **Add Port**
+   - Click the **Add Port** button.
    - **Port Number**: `7860`
    - **Port Type**: `HTTP`
 
-5. **Deploy**: Click **Deploy** to start the deployment.
+5. **Deploy**: Click the **Deploy** button to start the deployment.
 6. **Configure Public Access**:
-   - Click the **Network** tab
-   - Click **Public Access**
-   - Click **+ Generate Domain** to create a custom domain
+   - Click the **Network** tab.
+   - Click **Public Access**.
+   - Click the **+ Generate Domain** button to create a custom domain.
 
 ## 📡 Accessing the Service
 
@@ -74,11 +74,11 @@ After deployment, you can access the API using the public domain combined with t
 
 ### Pausing the Service
 
-1. Go to the service details page
-2. Click **Settings**
-3. Scroll to the bottom and click **Pause Service**
+1. Go to the service details page.
+2. Click the **Settings** tab.
+3. Scroll to the bottom and click the **Pause Service** button.
 
 ### Starting the Service
 
-1. Go to the service status page
-2. Click **Restart Current Version**
+1. Go to the service status page.
+2. Click the **Restart Current Version** button.
