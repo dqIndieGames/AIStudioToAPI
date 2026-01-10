@@ -11,7 +11,7 @@ A tool that wraps Google AI Studio web interface to provide OpenAI API and Gemin
 - 🔄 **API Compatibility**: Compatible with both OpenAI API and Gemini API formats
 - 🌐 **Web Automation**: Uses browser automation to interact with AI Studio web interface
 - 🔐 **Authentication**: Secure API key-based authentication
-- 🐳 **Docker Support**: Easy deployment with Docker and Docker Compose
+- 🔧 **Tool Calls Support**: Both OpenAI and Gemini APIs support Tool Calls (Function Calling)
 - 📝 **Model Support**: Access to various Gemini models through AI Studio, including image generation models
 - 🎨 **Homepage Display Control**: Provides a visual web console with account management, VNC login, and more
 
