@@ -111,10 +111,10 @@
 <span class="label">{{ t('currentAccount') }}</span>: #<span>{{ state.currentAuthIndex }}</span> (<span :class="currentAccountNameClass">{{ currentAccountName }}</span>)
 <span class="label">{{ t('usageCount') }}</span>: <span>{{ state.usageCount }}</span>
 <span class="label">{{ t('consecutiveFailures') }}</span>: <span>{{ state.failureCount }}</span>
-<span class="label">{{ t('totalScanned') }}</span>: <span>{{ totalScannedAccountsText }}</span>
-<span class="label">{{ t('dedupedAvailable') }}</span>: <span>{{ rotationAccountsText }}</span>
-<span class="label">{{ t('duplicateAuth') }}</span>: <span>{{ duplicateAuthText }}</span><template v-for="account in state.accountDetails" :key="account.index">
+<span class="label">{{ t('totalScanned') }}</span>: <span>{{ totalScannedAccountsText }}</span><template v-for="account in state.accountDetails" :key="account.index">
 <span class="label account-label" style="padding-left: 20px;">{{ t('account') }} {{ account.index }}</span>: {{ getAccountDisplayName(account) }}</template>
+<span class="label">{{ t('dedupedAvailable') }}</span>: <span>{{ rotationAccountsText }}</span>
+<span class="label">{{ t('duplicateAuth') }}</span>: <span>{{ duplicateAuthText }}</span>
 <span class="label">{{ t('formatErrors') }}</span>: <span>{{ formatErrorsText }}</span></template></pre>
             </div>
             <div id="actions-section" style="margin-top: 2em">

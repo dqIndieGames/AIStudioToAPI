@@ -29,26 +29,26 @@ class AuthSwitcher {
         this.browserManager.currentAuthIndex = value;
     }
 
-    getNextAuthIndex() {
-        const available = this.authSource.getRotationIndices();
-        if (available.length === 0) return null;
+    // getNextAuthIndex() {
+    //     const available = this.authSource.getRotationIndices();
+    //     if (available.length === 0) return null;
 
-        const currentCanonicalIndex =
-            this.currentAuthIndex >= 0
-                ? this.authSource.getCanonicalIndex(this.currentAuthIndex)
-                : this.currentAuthIndex;
-        const currentIndexInArray = available.indexOf(currentCanonicalIndex);
+    //     const currentCanonicalIndex =
+    //         this.currentAuthIndex >= 0
+    //             ? this.authSource.getCanonicalIndex(this.currentAuthIndex)
+    //             : this.currentAuthIndex;
+    //     const currentIndexInArray = available.indexOf(currentCanonicalIndex);
 
-        if (currentIndexInArray === -1) {
-            this.logger.warn(
-                `[Auth] Current index ${this.currentAuthIndex} not in available list, switching to first available index.`
-            );
-            return available[0];
-        }
+    //     if (currentIndexInArray === -1) {
+    //         this.logger.warn(
+    //             `[Auth] Current index ${this.currentAuthIndex} not in available list, switching to first available index.`
+    //         );
+    //         return available[0];
+    //     }
 
-        const nextIndexInArray = (currentIndexInArray + 1) % available.length;
-        return available[nextIndexInArray];
-    }
+    //     const nextIndexInArray = (currentIndexInArray + 1) % available.length;
+    //     return available[nextIndexInArray];
+    // }
 
     async switchToNextAuth() {
         const available = this.authSource.getRotationIndices();
@@ -202,20 +202,14 @@ class AuthSwitcher {
             return { reason: "Switch already in progress.", success: false };
         }
 
-        const canonicalIndex = this.authSource.getCanonicalIndex(targetIndex);
-        if (canonicalIndex === null) {
+        // For manual switch, respect user's choice - don't auto-redirect to canonical index
+        // UI already shows duplicate indicator, so user is making a deliberate choice
+        if (!this.authSource.availableIndices.includes(targetIndex)) {
             return {
                 reason: `Switch failed: Account #${targetIndex} invalid or does not exist.`,
                 success: false,
             };
         }
-
-        if (canonicalIndex !== targetIndex) {
-            this.logger.warn(
-                `[Auth] Requested account #${targetIndex} is a duplicate for the same email. Redirecting to latest auth index #${canonicalIndex}.`
-            );
-        }
-        targetIndex = canonicalIndex;
 
         this.isSystemBusy = true;
         try {

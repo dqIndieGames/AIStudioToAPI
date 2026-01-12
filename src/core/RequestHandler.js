@@ -125,7 +125,7 @@ class RequestHandler {
                 }
                 this.logger.info("✅ [System] WebSocket connection is ready!");
                 recoverySuccess = true;
-            } else if (this.authSource.availableIndices.length > 0) {
+            } else if (this.authSource.getRotationIndices().length > 0) {
                 this.logger.warn("⚠️ [System] No current account, attempting to switch to first available account...");
                 // Don't set isSystemBusy here - let switchToNextAuth manage it
                 const result = await this.authSwitcher.switchToNextAuth();

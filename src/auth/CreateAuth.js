@@ -322,10 +322,10 @@ class CreateAuth {
                 fs.mkdirSync(configDir, { recursive: true });
             }
 
-            let nextAuthIndex = 0;
-            while (fs.existsSync(path.join(configDir, `auth-${nextAuthIndex}.json`))) {
-                nextAuthIndex++;
-            }
+            // Always use max index + 1 to ensure new auth is always the latest
+            // This simplifies dedup logic assumption: higher index = newer auth
+            const existingIndices = this.serverSystem.authSource.availableIndices || [];
+            const nextAuthIndex = existingIndices.length > 0 ? Math.max(...existingIndices) + 1 : 0;
 
             const newAuthFilePath = path.join(configDir, `auth-${nextAuthIndex}.json`);
             fs.writeFileSync(newAuthFilePath, JSON.stringify(authData, null, 2));

@@ -171,15 +171,11 @@ class StatusRoutes {
             try {
                 const { authSource, requestHandler } = this.serverSystem;
 
-                // Force refresh to ensure dedup metadata is up-to-date even if file list didn't change.
-                authSource.reloadAuthSources(true);
-
                 const duplicateGroups = authSource.getDuplicateGroups() || [];
                 if (duplicateGroups.length === 0) {
                     return res.status(200).json({
                         message: "accountDedupNoop",
                         removedIndices: [],
-                        rotationIndices: authSource.getRotationIndices(),
                     });
                 }
 
@@ -229,21 +225,17 @@ class StatusRoutes {
                     }
                 }
 
-                authSource.reloadAuthSources(true);
-
                 if (failed.length > 0) {
                     return res.status(500).json({
                         failed,
                         message: "accountDedupPartialFailed",
                         removedIndices,
-                        rotationIndices: authSource.getRotationIndices(),
                     });
                 }
 
                 return res.status(200).json({
                     message: "accountDedupSuccess",
                     removedIndices,
-                    rotationIndices: authSource.getRotationIndices(),
                 });
             } catch (error) {
                 this.logger.error(`[Auth] Dedup cleanup failed: ${error.message}`);
@@ -369,11 +361,10 @@ class StatusRoutes {
                 // If content is object, stringify it
                 const fileContent = typeof content === "object" ? JSON.stringify(content, null, 2) : content;
 
-                // Find next available index
-                let nextAuthIndex = 0;
-                while (fs.existsSync(path.join(configDir, `auth-${nextAuthIndex}.json`))) {
-                    nextAuthIndex++;
-                }
+                // Always use max index + 1 to ensure new auth is always the latest
+                // This simplifies dedup logic assumption: higher index = newer auth
+                const existingIndices = this.serverSystem.authSource.availableIndices || [];
+                const nextAuthIndex = existingIndices.length > 0 ? Math.max(...existingIndices) + 1 : 0;
 
                 const newFilename = `auth-${nextAuthIndex}.json`;
                 const filePath = path.join(configDir, newFilename);
