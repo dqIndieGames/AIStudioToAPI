@@ -987,9 +987,10 @@ class BrowserManager {
             /* eslint-enable no-undef */
 
             this.logger.info('[Browser] (Step 1/5) Preparing to click "Code" button...');
-            for (let i = 1; i <= 5; i++) {
+            const maxTimes = 15;
+            for (let i = 1; i <= maxTimes; i++) {
                 try {
-                    this.logger.info(`  [Attempt ${i}/5] Cleaning overlay layers and clicking...`);
+                    this.logger.info(`  [Attempt ${i}/${maxTimes}] Cleaning overlay layers and clicking...`);
                     /* eslint-disable no-undef */
                     await this.page.evaluate(() => {
                         document.querySelectorAll("div.cdk-overlay-backdrop").forEach(el => el.remove());
@@ -1003,8 +1004,8 @@ class BrowserManager {
                     this.logger.info("  ✅ Click successful!");
                     break;
                 } catch (error) {
-                    this.logger.warn(`  [Attempt ${i}/5] Click failed: ${error.message.split("\n")[0]}`);
-                    if (i === 5) {
+                    this.logger.warn(`  [Attempt ${i}/${maxTimes}] Click failed: ${error.message.split("\n")[0]}`);
+                    if (i === maxTimes) {
                         throw new Error(
                             `Unable to click "Code" button after multiple attempts, initialization failed.`
                         );
