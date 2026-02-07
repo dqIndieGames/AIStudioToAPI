@@ -6,6 +6,7 @@
  */
 
 const CreateAuth = require("../auth/CreateAuth");
+const SetupAuthRunner = require("../auth/SetupAuthRunner");
 
 /**
  * Auth Routes Manager
@@ -21,6 +22,7 @@ class AuthRoutes {
 
         // Initialize auth creation handler
         this.createAuth = new CreateAuth(serverSystem);
+        this.setupAuth = new SetupAuthRunner(serverSystem);
 
         // Rate limiting configuration from environment variables
         this.rateLimitEnabled = process.env.RATE_LIMIT_MAX_ATTEMPTS !== "0";
@@ -200,6 +202,26 @@ class AuthRoutes {
             this.logger.info("[VNC] Received cleanup request from client (beacon).");
             await this.createAuth._cleanupVncSession("client_beacon");
             res.sendStatus(204); // No content
+        });
+
+        // Windows-friendly auth setup routes
+        app.post("/api/auth/setup/start", isAuthenticated, (req, res) => {
+            const result = this.setupAuth.start();
+            res.status(result.status).json(result);
+        });
+
+        app.post("/api/auth/setup/continue", isAuthenticated, (req, res) => {
+            const result = this.setupAuth.continue();
+            res.status(result.status).json(result);
+        });
+
+        app.post("/api/auth/setup/cancel", isAuthenticated, (req, res) => {
+            const result = this.setupAuth.cancel();
+            res.status(result.status).json(result);
+        });
+
+        app.get("/api/auth/setup/status", isAuthenticated, (req, res) => {
+            res.status(200).json(this.setupAuth.getStatus());
         });
     }
 

@@ -28,6 +28,7 @@ class AuthSource {
         // Duplicate groups (email -> kept + duplicates)
         this.duplicateGroups = [];
         this.lastScannedIndices = "[]"; // Cache to track changes
+        this.expiredIndexMap = new Map(); // index -> { reason, time }
 
         this.logger.info('[Auth] Using files in "configs/auth/" directory for authentication.');
 
@@ -52,6 +53,12 @@ class AuthSource {
             this.logger.info(
                 `[Auth] Reload complete. ${this.availableIndices.length} valid sources available: [${this.availableIndices.join(", ")}]`
             );
+            // Prune expired markers that no longer exist
+            for (const index of this.expiredIndexMap.keys()) {
+                if (!this.availableIndices.includes(index)) {
+                    this.expiredIndexMap.delete(index);
+                }
+            }
             this.lastScannedIndices = newIndices;
         }
     }
@@ -255,6 +262,22 @@ class AuthSource {
 
     getDuplicateGroups() {
         return this.duplicateGroups;
+    }
+
+    markAuthExpired(index, reason = "") {
+        if (!Number.isInteger(index)) return;
+        if (!this.availableIndices.includes(index)) return;
+        this.expiredIndexMap.set(index, { reason, time: Date.now() });
+    }
+
+    clearAuthExpired(index) {
+        if (!Number.isInteger(index)) return;
+        this.expiredIndexMap.delete(index);
+    }
+
+    getExpiredInfo(index) {
+        if (!Number.isInteger(index)) return null;
+        return this.expiredIndexMap.get(index) || null;
     }
 }
 

@@ -257,6 +257,15 @@
                                     <span class="account-name" :class="currentAccountNameClass">
                                         #{{ state.currentAuthIndex }} {{ currentAccountName }}
                                     </span>
+                                    <el-tooltip
+                                        v-if="currentAccountExpired"
+                                        :content="getAccountExpiredHint(currentAccountInfo)"
+                                        placement="top"
+                                        effect="dark"
+                                        :hide-after="0"
+                                    >
+                                        <span class="expired-badge">{{ t("tagExpired") }}</span>
+                                    </el-tooltip>
                                 </span>
                             </div>
                             <div class="status-item">
@@ -609,7 +618,10 @@
                                 v-for="item in state.accountDetails"
                                 :key="item.index"
                                 class="account-list-item"
-                                :class="{ 'is-current': item.index === state.currentAuthIndex }"
+                                :class="{
+                                    'is-current': item.index === state.currentAuthIndex,
+                                    'is-expired': item.isExpired,
+                                }"
                             >
                                 <el-tooltip
                                     :content="getAccountDisplayName(item)"
@@ -621,13 +633,26 @@
                                         <span class="account-index">#{{ item.index }}</span>
                                         <span
                                             class="account-email"
-                                            :class="{ 'is-error': item.isInvalid, 'is-duplicate': item.isDuplicate }"
+                                            :class="{
+                                                'is-error': item.isInvalid,
+                                                'is-duplicate': item.isDuplicate,
+                                                'is-expired': item.isExpired,
+                                            }"
                                         >
                                             {{ getAccountDisplayName(item) }}
                                         </span>
                                         <span v-if="item.index === state.currentAuthIndex" class="current-badge">
                                             {{ t("tagCurrent") }}
                                         </span>
+                                        <el-tooltip
+                                            v-if="item.isExpired"
+                                            :content="getAccountExpiredHint(item)"
+                                            placement="top"
+                                            effect="dark"
+                                            :hide-after="0"
+                                        >
+                                            <span class="expired-badge">{{ t("tagExpired") }}</span>
+                                        </el-tooltip>
                                     </div>
                                 </el-tooltip>
                                 <div class="account-actions">
@@ -1332,8 +1357,10 @@ const state = reactive({
     logScrollTop: 0,
     releaseUrl: null,
     serviceConnected: false,
+    serverPlatform: "",
     streamingModeReal: false,
     // theme: handled by useTheme
+    vncSupported: true,
     usageCount: 0,
 });
 
@@ -1361,21 +1388,34 @@ const dedupedAvailableCount = computed(() => {
 
 const isBusy = computed(() => state.isSwitchingAccount || state.isSystemBusy);
 
+const currentAccountInfo = computed(() => {
+    if (state.currentAuthIndex < 0) {
+        return null;
+    }
+    return state.accountDetails.find(acc => acc.index === state.currentAuthIndex) || null;
+});
+
 const currentAccountName = computed(() => {
     if (state.currentAuthIndex < 0) {
         return t("noActiveAccount");
     }
-    const account = state.accountDetails.find(acc => acc.index === state.currentAuthIndex);
-    return account ? getAccountDisplayName(account) : t("noActiveAccount");
+    return currentAccountInfo.value ? getAccountDisplayName(currentAccountInfo.value) : t("noActiveAccount");
 });
 
 const currentAccountNameClass = computed(() => {
     if (state.currentAuthIndex < 0) {
         return "status-error";
     }
-    const account = state.accountDetails.find(acc => acc.index === state.currentAuthIndex);
-    return account ? "" : "status-error";
+    if (!currentAccountInfo.value) {
+        return "status-error";
+    }
+    if (currentAccountInfo.value.isExpired) {
+        return "status-error";
+    }
+    return "";
 });
+
+const currentAccountExpired = computed(() => !!(currentAccountInfo.value && currentAccountInfo.value.isExpired));
 
 const serviceConnectedClass = computed(() => (state.serviceConnected ? "status-ok" : "status-error"));
 
@@ -1422,7 +1462,126 @@ const getAccountDisplayName = account => {
     return name;
 };
 
+const getAccountExpiredHint = account => {
+    if (!account || !account.isExpired) {
+        return "";
+    }
+    const reason = account.expiredReason || "";
+    if (reason) {
+        return t("accountExpiredHintWithReason", { reason });
+    }
+    return t("accountExpiredHint");
+};
+
+const showWindowsSetupDialog = () => {
+    const content = t("winAuthGuideContent", {
+        cmd: "npm run setup-auth",
+        path: "configs/auth/auth-*.json",
+    });
+
+    ElMessageBox.confirm(content, t("winAuthGuideTitle"), {
+        cancelButtonText: t("cancel"),
+        confirmButtonText: t("winAuthGuideContinueButton"),
+        dangerouslyUseHTMLString: true,
+        distinguishCancelAndClose: true,
+        lockScroll: false,
+        type: "info",
+    })
+        .then(() => {
+            continueWindowsSetupAuth();
+        })
+        .catch(() => {});
+};
+
+const waitForSetupAuthFinish = async () => {
+    const maxWaitMs = 10 * 60 * 1000;
+    const intervalMs = 2000;
+    const start = Date.now();
+
+    while (Date.now() - start < maxWaitMs) {
+        try {
+            const res = await fetch("/api/auth/setup/status");
+            if (res.ok) {
+                const data = await res.json();
+                if (!data.running) {
+                    return data;
+                }
+            }
+        } catch (err) {
+            console.error(err);
+        }
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+
+    return null;
+};
+
+const continueWindowsSetupAuth = async () => {
+    try {
+        const res = await fetch("/api/auth/setup/continue", { method: "POST" });
+        const data = await res.json();
+
+        if (!res.ok) {
+            ElMessage.error(t(data.message || "setupAuthContinueFailed", { error: data.error || "" }));
+            return;
+        }
+
+        ElMessage.success(t(data.message));
+    } catch (err) {
+        ElMessage.error(t("setupAuthContinueFailed", { error: err.message || err }));
+        return;
+    }
+
+    const result = await waitForSetupAuthFinish();
+    if (!result) {
+        ElMessage.warning(t("setupAuthStillRunning"));
+        return;
+    }
+
+    if (result.exitCode === 0) {
+        ElMessage.success(t("setupAuthFinishedSuccess", { file: result.lastAuthFile || "" }));
+        if (Number.isInteger(result.lastAuthIndex) && state.currentAuthIndex < 0) {
+            await performSwitchAccount(result.lastAuthIndex);
+        } else {
+            updateContent();
+        }
+        return;
+    }
+
+    ElMessage.error(
+        t("setupAuthFinishedFailed", {
+            error: result.error || `exit ${result.exitCode}`,
+        })
+    );
+};
+
+const startWindowsSetupAuth = async () => {
+    try {
+        const res = await fetch("/api/auth/setup/start", { method: "POST" });
+        const data = await res.json();
+
+        if (!res.ok && data.message !== "setupAuthAlreadyRunning") {
+            ElMessage.error(t(data.message || "setupAuthStartFailed", { error: data.error || "" }));
+            return;
+        }
+
+        if (data.message === "setupAuthAlreadyRunning") {
+            ElMessage.info(t(data.message));
+        } else {
+            ElMessage.success(t(data.message));
+        }
+
+        showWindowsSetupDialog();
+    } catch (err) {
+        ElMessage.error(t("setupAuthStartFailed", { error: err.message || err }));
+    }
+};
+
 const addUser = () => {
+    if (state.vncSupported === false) {
+        startWindowsSetupAuth();
+        return;
+    }
     router.push("/auth");
 };
 
@@ -1680,6 +1839,36 @@ const handleStreamingModeBeforeChange = async () => {
     }
 };
 
+const performSwitchAccount = async targetIndex => {
+    const notification = ElNotification({
+        duration: 0,
+        message: t("switchingAccountNotice"),
+        title: t("warningTitle"),
+        type: "warning",
+    });
+    state.isSwitchingAccount = true;
+    try {
+        const res = await fetch("/api/accounts/current", {
+            body: JSON.stringify({ targetIndex }),
+            headers: { "Content-Type": "application/json" },
+            method: "PUT",
+        });
+        const data = await res.json();
+        const message = t(data.message, data);
+        if (res.ok) {
+            ElMessage.success(message);
+        } else {
+            ElMessage.error(message);
+        }
+    } catch (err) {
+        ElMessage.error(t("settingFailed", { message: err.message || err }));
+    } finally {
+        state.isSwitchingAccount = false;
+        notification.close();
+        updateContent();
+    }
+};
+
 // Switch account by index
 const switchAccountByIndex = targetIndex => {
     if (state.currentAuthIndex === targetIndex) {
@@ -1696,35 +1885,7 @@ const switchAccountByIndex = targetIndex => {
         lockScroll: false,
         type: "warning",
     })
-        .then(async () => {
-            const notification = ElNotification({
-                duration: 0,
-                message: t("switchingAccountNotice"),
-                title: t("warningTitle"),
-                type: "warning",
-            });
-            state.isSwitchingAccount = true;
-            try {
-                const res = await fetch("/api/accounts/current", {
-                    body: JSON.stringify({ targetIndex }),
-                    headers: { "Content-Type": "application/json" },
-                    method: "PUT",
-                });
-                const data = await res.json();
-                const message = t(data.message, data);
-                if (res.ok) {
-                    ElMessage.success(message);
-                } else {
-                    ElMessage.error(message);
-                }
-            } catch (err) {
-                ElMessage.error(t("settingFailed", { message: err.message || err }));
-            } finally {
-                state.isSwitchingAccount = false;
-                notification.close();
-                updateContent();
-            }
-        })
+        .then(() => performSwitchAccount(targetIndex))
         .catch(e => {
             if (e !== "cancel") {
                 console.error(e);
@@ -1752,7 +1913,9 @@ const updateStatus = data => {
     state.accountDetails = data.status.accountDetails || [];
     state.browserConnected = data.status.browserConnected;
     state.apiKeySource = data.status.apiKeySource;
+    state.serverPlatform = data.status.platform || "";
     state.usageCount = data.status.usageCount;
+    state.vncSupported = data.status.vncSupported !== false;
     state.failureCount = data.status.failureCount;
     state.logCount = data.logCount || 0;
     state.logMaxCount = data.status.logMaxCount || 100;
@@ -1838,8 +2001,15 @@ const handleFileUpload = async event => {
             if (res.ok) {
                 const data = await res.json();
                 ElMessage.success(t("fileUploadSuccess") + ` (${data.filename || ""})`);
-                // Immediately update status to reflect new account
-                updateContent();
+                const match = String(data.filename || "").match(/auth-(\d+)\.json/i);
+                const newIndex = match ? parseInt(match[1], 10) : null;
+
+                if (Number.isInteger(newIndex) && state.currentAuthIndex < 0) {
+                    await performSwitchAccount(newIndex);
+                } else {
+                    // Immediately update status to reflect new account
+                    updateContent();
+                }
             } else {
                 const data = await res.json();
                 ElMessage.error(t("fileUploadFailed", { error: data.error || "Unknown error" }));
@@ -2286,6 +2456,11 @@ watchEffect(() => {
         border-color: @primary-color;
         background: rgba(var(--color-primary-rgb), 0.08);
     }
+
+    &.is-expired {
+        border-color: rgba(var(--color-error-rgb), 0.6);
+        background: rgba(var(--color-error-rgb), 0.06);
+    }
 }
 
 .account-info {
@@ -2318,6 +2493,11 @@ watchEffect(() => {
     &.is-duplicate {
         color: @warning-color;
     }
+
+    &.is-expired {
+        color: @error-color;
+        font-weight: 600;
+    }
 }
 
 .current-badge {
@@ -2329,6 +2509,16 @@ watchEffect(() => {
     flex-shrink: 0;
     margin-left: 0;
     margin-right: 6px;
+}
+
+.expired-badge {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    background: rgba(var(--color-error-rgb), 0.12);
+    color: @error-color;
+    border-radius: 12px;
+    border: 1px solid rgba(var(--color-error-rgb), 0.35);
+    flex-shrink: 0;
 }
 
 .account-actions {

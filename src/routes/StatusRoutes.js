@@ -434,7 +434,22 @@ class StatusRoutes {
             const isDuplicate = canonicalIndex !== null && canonicalIndex !== index;
             const isRotation = rotationIndices.includes(index);
 
-            return { canonicalIndex, index, isDuplicate, isInvalid, isRotation, name };
+            const expiredInfo = isInvalid ? null : authSource.getExpiredInfo(index);
+            const isExpired = !!expiredInfo;
+            const expiredReason = expiredInfo ? expiredInfo.reason || "" : null;
+            const expiredTime = expiredInfo ? expiredInfo.time || null : null;
+
+            return {
+                canonicalIndex,
+                expiredReason,
+                expiredTime,
+                index,
+                isDuplicate,
+                isExpired,
+                isInvalid,
+                isRotation,
+                name,
+            };
         });
 
         const currentAuthIndex = requestHandler.currentAuthIndex;
@@ -473,8 +488,10 @@ class StatusRoutes {
                 invalidIndicesRaw: invalidIndices,
                 isSystemBusy: requestHandler.isSystemBusy,
                 logMaxCount: limit,
+                platform: process.platform,
                 rotationIndicesRaw: rotationIndices,
                 streamingMode: this.serverSystem.streamingMode,
+                vncSupported: process.platform !== "win32",
                 usageCount,
             },
         };

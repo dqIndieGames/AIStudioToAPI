@@ -20,6 +20,7 @@ class FormatConverter {
     static THINKING_LEVEL_MAP = {
         high: "HIGH",
         low: "LOW",
+        mid: "MEDIUM",
         medium: "MEDIUM",
         minimal: "MINIMAL",
     };
@@ -589,6 +590,7 @@ class FormatConverter {
             if (!thinkingConfig) {
                 thinkingConfig = {};
             }
+            thinkingConfig.includeThoughts = true;
             thinkingConfig.thinkingLevel = modelThinkingLevel;
             this.logger.info(
                 `[Adapter] Applied thinkingLevel from model name suffix: ${modelThinkingLevel} (overriding any existing value)`
@@ -1382,6 +1384,7 @@ class FormatConverter {
         // Apply model name suffix thinkingLevel
         if (modelThinkingLevel) {
             if (!thinkingConfig) thinkingConfig = {};
+            thinkingConfig.includeThoughts = true;
             thinkingConfig.thinkingLevel = modelThinkingLevel;
         }
 

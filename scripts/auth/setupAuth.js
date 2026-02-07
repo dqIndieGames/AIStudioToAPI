@@ -19,6 +19,11 @@ const PROJECT_ROOT = path.join(__dirname, "..", "..");
 
 // Language setting (will be set after user selection)
 let lang = "zh";
+const envLang = (process.env.SETUP_AUTH_LANG || "").trim().toLowerCase();
+const shouldPromptLang = envLang !== "zh" && envLang !== "en";
+if (!shouldPromptLang) {
+    lang = envLang;
+}
 
 // Bilingual text helper
 const getText = (zh, en) => (lang === "zh" ? zh : en);
@@ -483,8 +488,10 @@ const main = async () => {
         process.exit(0);
     }
 
-    // Ask user to select language first
-    await selectLanguage();
+    // Ask user to select language first (unless provided by env)
+    if (shouldPromptLang) {
+        await selectLanguage();
+    }
 
     console.log("");
     console.log("==========================================");

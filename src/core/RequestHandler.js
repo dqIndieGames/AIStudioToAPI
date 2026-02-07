@@ -1779,6 +1779,7 @@ class RequestHandler {
             if (!bodyObj.generationConfig.thinkingConfig) {
                 bodyObj.generationConfig.thinkingConfig = {};
             }
+            bodyObj.generationConfig.thinkingConfig.includeThoughts = true;
             // Model name suffix thinkingLevel has highest priority, direct override
             bodyObj.generationConfig.thinkingConfig.thinkingLevel = modelThinkingLevel;
             this.logger.info(

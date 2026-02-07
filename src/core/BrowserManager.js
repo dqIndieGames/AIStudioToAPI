@@ -585,6 +585,15 @@ class BrowserManager {
         }
     }
 
+    _isAuthExpiredError(error) {
+        const msg = (error?.message || "").toLowerCase();
+        return (
+            msg.includes("cookie expired/invalid") ||
+            msg.includes("redirected to google login page") ||
+            msg.includes("google login")
+        );
+    }
+
     /**
      * Helper: Handle various popups with intelligent detection
      * Uses short polling instead of long hard-coded timeouts
@@ -1134,6 +1143,7 @@ class BrowserManager {
 
             // Check for cookie expiration, region restrictions, and other errors
             await this._checkPageStatusAndErrors("[Browser]");
+            this.authSource.clearAuthExpired(authIndex);
 
             // Handle various popups (Cookie consent, Got it, Onboarding, etc.)
             await this._handlePopups("[Browser]");
@@ -1154,6 +1164,9 @@ class BrowserManager {
             this.logger.info("==================================================");
         } catch (error) {
             this.logger.error(`❌ [Browser] Account ${authIndex} context initialization failed: ${error.message}`);
+            if (this._isAuthExpiredError(error)) {
+                this.authSource.markAuthExpired(authIndex, error.message || "");
+            }
             await this._saveDebugArtifacts("init_failed");
             await this.closeBrowser();
             this._currentAuthIndex = -1;
@@ -1209,6 +1222,7 @@ class BrowserManager {
 
             // Check for cookie expiration, region restrictions, and other errors
             await this._checkPageStatusAndErrors("[Reconnect]");
+            this.authSource.clearAuthExpired(authIndex);
 
             // Handle various popups (Cookie consent, Got it, Onboarding, etc.)
             await this._handlePopups("[Reconnect]");
@@ -1226,6 +1240,9 @@ class BrowserManager {
             return true;
         } catch (error) {
             this.logger.error(`❌ [Reconnect] Lightweight reconnect failed: ${error.message}`);
+            if (this._isAuthExpiredError(error)) {
+                this.authSource.markAuthExpired(authIndex, error.message || "");
+            }
             await this._saveDebugArtifacts("reconnect_failed");
             return false;
         }
