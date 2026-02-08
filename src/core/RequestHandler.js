@@ -27,6 +27,8 @@ class RequestHandler {
 
         this.maxRetries = this.config.maxRetries;
         this.retryDelay = this.config.retryDelay;
+        this.streamChunkTimeoutMs = 60000;
+        this.realStreamHeartbeatIntervalMs = 15000;
         this.needsSwitchingAfterRequest = false;
     }
 
@@ -75,6 +77,30 @@ class RequestHandler {
             error.message.includes("Queue is closed") ||
             error.message.includes("Connection lost")
         );
+    }
+
+    _startRealStreamHeartbeat(res, streamLabel = "Real stream") {
+        const heartbeatTimer = setInterval(() => {
+            if (res.writableEnded) {
+                clearInterval(heartbeatTimer);
+                return;
+            }
+
+            try {
+                res.write(": keep-alive\n\n");
+            } catch (error) {
+                clearInterval(heartbeatTimer);
+                this.logger.debug(`[Request] ${streamLabel} heartbeat stopped: ${error.message}`);
+            }
+        }, this.realStreamHeartbeatIntervalMs);
+
+        return heartbeatTimer;
+    }
+
+    _stopRealStreamHeartbeat(heartbeatTimer) {
+        if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+        }
     }
 
     /**
@@ -926,43 +952,48 @@ class RequestHandler {
 
     async _streamClaudeResponse(messageQueue, res, model) {
         const streamState = {};
+        const heartbeatTimer = this._startRealStreamHeartbeat(res, "Claude real stream");
 
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-            const message = await messageQueue.dequeue(30000);
+        try {
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+                const message = await messageQueue.dequeue(this.streamChunkTimeoutMs);
 
-            if (message.type === "STREAM_END") {
-                this.logger.info("[Request] Claude stream end signal received.");
-                break;
-            }
+                if (message.type === "STREAM_END") {
+                    this.logger.info("[Request] Claude stream end signal received.");
+                    break;
+                }
 
-            if (message.event_type === "error") {
-                this.logger.error(`[Request] Error received during Claude stream: ${message.message}`);
-                // Attempt to send error event to client if headers allowed, then close
-                if (!res.writableEnded) {
-                    res.write(
-                        `event: error\ndata: ${JSON.stringify({
-                            error: {
-                                message: message.message,
-                                type: "api_error",
-                            },
-                            type: "error",
-                        })}\n\n`
+                if (message.event_type === "error") {
+                    this.logger.error(`[Request] Error received during Claude stream: ${message.message}`);
+                    // Attempt to send error event to client if headers allowed, then close
+                    if (!res.writableEnded) {
+                        res.write(
+                            `event: error\ndata: ${JSON.stringify({
+                                error: {
+                                    message: message.message,
+                                    type: "api_error",
+                                },
+                                type: "error",
+                            })}\n\n`
+                        );
+                    }
+                    break;
+                }
+
+                if (message.data) {
+                    const claudeChunk = this.formatConverter.translateGoogleToClaudeStream(
+                        message.data,
+                        model,
+                        streamState
                     );
-                }
-                break;
-            }
-
-            if (message.data) {
-                const claudeChunk = this.formatConverter.translateGoogleToClaudeStream(
-                    message.data,
-                    model,
-                    streamState
-                );
-                if (claudeChunk) {
-                    res.write(claudeChunk);
+                    if (claudeChunk) {
+                        res.write(claudeChunk);
+                    }
                 }
             }
+        } finally {
+            this._stopRealStreamHeartbeat(heartbeatTimer);
         }
     }
 
@@ -1261,11 +1292,12 @@ class RequestHandler {
             res.type("text/event-stream");
         }
         this.logger.info("[Request] Starting streaming transmission...");
+        const heartbeatTimer = this._startRealStreamHeartbeat(res, "Gemini real stream");
         try {
             let lastChunk = "";
             // eslint-disable-next-line no-constant-condition
             while (true) {
-                const dataMessage = await messageQueue.dequeue(30000);
+                const dataMessage = await messageQueue.dequeue(this.streamChunkTimeoutMs);
                 if (dataMessage.type === "STREAM_END") {
                     this.logger.info("[Request] Received stream end signal.");
                     break;
@@ -1304,6 +1336,7 @@ class RequestHandler {
             if (error.message !== "Queue timeout") throw error;
             this.logger.warn("[Request] Real stream response timeout, stream may have ended normally.");
         } finally {
+            this._stopRealStreamHeartbeat(heartbeatTimer);
             if (!res.writableEnded) res.end();
             this.logger.info(
                 `[Request] Real stream response connection closed, request ID: ${proxyRequest.request_id}`
@@ -1509,37 +1542,42 @@ class RequestHandler {
 
     async _streamOpenAIResponse(messageQueue, res, model) {
         const streamState = {};
+        const heartbeatTimer = this._startRealStreamHeartbeat(res, "OpenAI real stream");
 
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-            const message = await messageQueue.dequeue(30000);
-            if (message.type === "STREAM_END") {
-                this.logger.info("[Request] OpenAI stream end signal received.");
-                res.write("data: [DONE]\n\n");
-                break;
-            }
+        try {
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+                const message = await messageQueue.dequeue(this.streamChunkTimeoutMs);
+                if (message.type === "STREAM_END") {
+                    this.logger.info("[Request] OpenAI stream end signal received.");
+                    res.write("data: [DONE]\n\n");
+                    break;
+                }
 
-            if (message.event_type === "error") {
-                this.logger.error(`[Request] Error received during OpenAI stream: ${message.message}`);
-                // Attempt to send error event to client if headers allowed, then close
-                if (!res.writableEnded) {
-                    res.write(
-                        `data: ${JSON.stringify({ error: { code: 500, message: message.message, type: "api_error" } })}\n\n`
+                if (message.event_type === "error") {
+                    this.logger.error(`[Request] Error received during OpenAI stream: ${message.message}`);
+                    // Attempt to send error event to client if headers allowed, then close
+                    if (!res.writableEnded) {
+                        res.write(
+                            `data: ${JSON.stringify({ error: { code: 500, message: message.message, type: "api_error" } })}\n\n`
+                        );
+                    }
+                    break;
+                }
+
+                if (message.data) {
+                    const openAIChunk = this.formatConverter.translateGoogleToOpenAIStream(
+                        message.data,
+                        model,
+                        streamState
                     );
-                }
-                break;
-            }
-
-            if (message.data) {
-                const openAIChunk = this.formatConverter.translateGoogleToOpenAIStream(
-                    message.data,
-                    model,
-                    streamState
-                );
-                if (openAIChunk) {
-                    res.write(openAIChunk);
+                    if (openAIChunk) {
+                        res.write(openAIChunk);
+                    }
                 }
             }
+        } finally {
+            this._stopRealStreamHeartbeat(heartbeatTimer);
         }
     }
 
