@@ -210,6 +210,20 @@ class AuthRoutes {
             res.status(result.status).json(result);
         });
 
+        app.post("/api/auth/setup/relogin/start", isAuthenticated, (req, res) => {
+            const targetIndex = Number.parseInt(req.body?.targetIndex, 10);
+            if (!Number.isInteger(targetIndex) || targetIndex < 0) {
+                return res.status(400).json({ message: "errorInvalidIndex" });
+            }
+
+            if (!this.serverSystem.authSource.availableIndices.includes(targetIndex)) {
+                return res.status(404).json({ index: targetIndex, message: "errorAccountNotFound" });
+            }
+
+            const result = this.setupAuth.start({ mode: "relogin", targetIndex });
+            res.status(result.status).json(result);
+        });
+
         app.post("/api/auth/setup/continue", isAuthenticated, (req, res) => {
             const result = this.setupAuth.continue();
             res.status(result.status).json(result);

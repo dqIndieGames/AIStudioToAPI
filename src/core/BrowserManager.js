@@ -1006,10 +1006,20 @@ class BrowserManager {
         this.logger.info("✅ [VNC] Temporary VNC browser instance launched successfully.");
 
         let contextOptions = {};
+        if (Number.isInteger(extraArgs.authIndex) && extraArgs.authIndex >= 0) {
+            const reloginState = this.authSource.getAuth(extraArgs.authIndex);
+            if (!reloginState) {
+                throw new Error(`VNC relogin target auth-${extraArgs.authIndex}.json not found or invalid.`);
+            }
+            contextOptions.storageState = reloginState;
+            this.logger.info(`[VNC] Re-login mode: loaded auth-${extraArgs.authIndex}.json.`);
+        }
+
         if (extraArgs.isMobile) {
             this.logger.info("[VNC] Mobile device detected. Applying mobile user-agent, viewport, and touch events.");
             const mobileDevice = devices["Pixel 5"];
             contextOptions = {
+                ...contextOptions,
                 hasTouch: mobileDevice.hasTouch,
                 userAgent: mobileDevice.userAgent,
                 viewport: { height: 915, width: 412 }, // Set a specific portrait viewport

@@ -694,6 +694,33 @@
                                             <polyline points="20 6 9 17 4 12"></polyline>
                                         </svg>
                                     </button>
+
+                                    <button
+                                        class="btn-relogin"
+                                        :class="{ 'is-expired': item.isExpired }"
+                                        :disabled="isBusy || item.isInvalid"
+                                        :title="t('btnReloginUser')"
+                                        @click.stop="reloginAccountByIndex(item.index)"
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <polyline points="23 4 23 10 17 10"></polyline>
+                                            <polyline points="1 20 1 14 7 14"></polyline>
+                                            <path
+                                                d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0 0 20.49 15"
+                                            ></path>
+                                        </svg>
+                                    </button>
+
                                     <button
                                         class="btn-danger"
                                         :disabled="isBusy"
@@ -1356,12 +1383,13 @@ const state = reactive({
     logs: t("loading"),
     logScrollTop: 0,
     releaseUrl: null,
-    serviceConnected: false,
     serverPlatform: "",
+    serviceConnected: false,
     streamingModeReal: false,
+
+    usageCount: 0,
     // theme: handled by useTheme
     vncSupported: true,
-    usageCount: 0,
 });
 
 const browserConnectedClass = computed(() => {
@@ -1539,8 +1567,14 @@ const continueWindowsSetupAuth = async () => {
     }
 
     if (result.exitCode === 0) {
-        ElMessage.success(t("setupAuthFinishedSuccess", { file: result.lastAuthFile || "" }));
-        if (Number.isInteger(result.lastAuthIndex) && state.currentAuthIndex < 0) {
+        const successKey = result.mode === "relogin" ? "setupAuthReloginFinishedSuccess" : "setupAuthFinishedSuccess";
+        ElMessage.success(
+            t(successKey, {
+                file: result.lastAuthFile || "",
+                index: Number.isInteger(result.targetIndex) ? result.targetIndex : "",
+            })
+        );
+        if (result.mode !== "relogin" && Number.isInteger(result.lastAuthIndex) && state.currentAuthIndex < 0) {
             await performSwitchAccount(result.lastAuthIndex);
         } else {
             updateContent();
@@ -1548,11 +1582,90 @@ const continueWindowsSetupAuth = async () => {
         return;
     }
 
+    const failedKey = result.mode === "relogin" ? "setupAuthReloginFinishedFailed" : "setupAuthFinishedFailed";
     ElMessage.error(
-        t("setupAuthFinishedFailed", {
+        t(failedKey, {
             error: result.error || `exit ${result.exitCode}`,
+            index: Number.isInteger(result.targetIndex) ? result.targetIndex : "",
         })
     );
+};
+
+const showWindowsReloginDialog = targetIndex => {
+    const content = t("winReloginGuideContent", {
+        cmd: "npm run setup-auth",
+        index: targetIndex,
+        path: `configs/auth/auth-${targetIndex}.json`,
+    });
+
+    ElMessageBox.confirm(content, t("winReloginGuideTitle"), {
+        cancelButtonText: t("cancel"),
+        confirmButtonText: t("winReloginGuideContinueButton"),
+        dangerouslyUseHTMLString: true,
+        distinguishCancelAndClose: true,
+        lockScroll: false,
+        type: "info",
+    })
+        .then(() => continueWindowsSetupAuth())
+        .catch(() => {});
+};
+
+const startWindowsReloginAuth = async targetIndex => {
+    try {
+        const res = await fetch("/api/auth/setup/relogin/start", {
+            body: JSON.stringify({ targetIndex }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+        });
+        const data = await res.json();
+
+        if (!res.ok && data.message !== "setupAuthAlreadyRunning") {
+            ElMessage.error(t(data.message || "setupAuthReloginStartFailed", { error: data.error || "" }));
+            return;
+        }
+
+        if (data.message === "setupAuthAlreadyRunning") {
+            ElMessage.info(t(data.message));
+        } else {
+            ElMessage.success(t(data.message));
+        }
+
+        showWindowsReloginDialog(targetIndex);
+    } catch (err) {
+        ElMessage.error(t("setupAuthReloginStartFailed", { error: err.message || err }));
+    }
+};
+
+const reloginAccountByIndex = targetIndex => {
+    const targetAccount = state.accountDetails.find(acc => acc.index === targetIndex);
+    if (!targetAccount) {
+        ElMessage.warning(t("noAccountSelected"));
+        return;
+    }
+    if (targetAccount.isInvalid) {
+        ElMessage.warning(t("jsonFormatError"));
+        return;
+    }
+
+    const accountSuffix = ` (${getAccountDisplayName(targetAccount)})`;
+    ElMessageBox.confirm(`${t("confirmRelogin")} #${targetIndex}${accountSuffix}?`, t("warningTitle"), {
+        cancelButtonText: t("cancel"),
+        confirmButtonText: t("ok"),
+        lockScroll: false,
+        type: "warning",
+    })
+        .then(() => {
+            if (state.vncSupported === false) {
+                startWindowsReloginAuth(targetIndex);
+                return;
+            }
+            router.push(`/auth?mode=relogin&index=${encodeURIComponent(targetIndex)}`);
+        })
+        .catch(e => {
+            if (e !== "cancel") {
+                console.error(e);
+            }
+        });
 };
 
 const startWindowsSetupAuth = async () => {
@@ -2547,6 +2660,16 @@ watchEffect(() => {
         &.btn-switch:hover:not(:disabled) {
             border-color: @success-color;
             color: @success-color;
+        }
+
+        &.btn-relogin:hover:not(:disabled) {
+            border-color: @warning-color;
+            color: @warning-color;
+        }
+
+        &.btn-relogin.is-expired {
+            border-color: rgba(var(--color-error-rgb), 0.45);
+            color: @error-color;
         }
 
         &.btn-switch.is-active {

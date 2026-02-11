@@ -9,6 +9,11 @@
     <div v-cloak class="vnc-app">
         <div id="vnc-container">
             <div id="vnc-surface" />
+
+            <div v-if="isReloginMode" class="vnc-mode-badge">
+                {{ reloginBadgeText }}
+            </div>
+
             <div v-if="statusTitle" class="vnc-status" :class="`is-${statusTone}`">
                 <div class="vnc-status-card">
                     <div class="vnc-status-title" :class="{ 'has-detail': statusDetail }">
@@ -266,9 +271,23 @@ const textInputRef = ref(null);
 // Initialize theme
 useTheme();
 
-const t = key => {
+const t = (key, options) => {
     langVersion.value; // Access to track language changes
-    return I18n.t(key, key);
+    return I18n.t(key, options);
+};
+
+const reloginTargetIndex = ref(null);
+const isReloginMode = computed(() => Number.isInteger(reloginTargetIndex.value));
+const reloginBadgeText = computed(() =>
+    isReloginMode.value ? t("authReloginModeBadge", { index: reloginTargetIndex.value }) : ""
+);
+
+const parseModeFromQuery = () => {
+    const params = new URLSearchParams(window.location.search);
+    const mode = (params.get("mode") || "").trim().toLowerCase();
+    const parsedIndex = Number.parseInt(params.get("index") || "", 10);
+    reloginTargetIndex.value =
+        mode === "relogin" && Number.isInteger(parsedIndex) && parsedIndex >= 0 ? parsedIndex : null;
 };
 
 const statusTitleText = computed(() => {
@@ -398,8 +417,14 @@ const loadVncClient = async (vncContainer, vncSurface) => {
         const initialWidth = vncContainer.clientWidth;
         const initialHeight = vncContainer.clientHeight;
 
+        const sessionPayload = { height: initialHeight, width: initialWidth };
+        if (isReloginMode.value) {
+            sessionPayload.mode = "relogin";
+            sessionPayload.targetIndex = reloginTargetIndex.value;
+        }
+
         const response = await fetch("/api/vnc/sessions", {
-            body: JSON.stringify({ height: initialHeight, width: initialWidth }),
+            body: JSON.stringify(sessionPayload),
             headers: { "Content-Type": "application/json" },
             method: "POST",
         });
@@ -515,7 +540,13 @@ const saveAuth = async (accountName = null) => {
     isSaving.value = true;
 
     try {
-        const body = JSON.stringify(accountName ? { accountName } : {});
+        const payload = accountName ? { accountName } : {};
+        if (isReloginMode.value) {
+            payload.mode = "relogin";
+            payload.targetIndex = reloginTargetIndex.value;
+        }
+
+        const body = JSON.stringify(payload);
         const headers = { "Content-Type": "application/json" };
 
         const response = await fetch("/api/vnc/auth", {
@@ -529,6 +560,12 @@ const saveAuth = async (accountName = null) => {
         if (data.message === "vncAuthSaveSuccess") {
             ElMessage.success(t("authSaveSuccess").replace("{accountName}", data.accountName));
             sessionStorage.setItem("newAuthInfo", JSON.stringify(data));
+            window.location.href = "/";
+            return;
+        }
+
+        if (data.message === "vncAuthReloginSuccess") {
+            ElMessage.success(t(data.message, data));
             window.location.href = "/";
             return;
         }
@@ -613,12 +650,13 @@ const startVncIfNeeded = () => {
 };
 
 onMounted(() => {
-    document.title = t("authPageTitle");
+    parseModeFromQuery();
+    document.title = isReloginMode.value ? t("authReloginPageTitle") : t("authPageTitle");
 
     // Listen for language changes
     I18n.onChange(() => {
         langVersion.value++;
-        document.title = t("authPageTitle");
+        document.title = isReloginMode.value ? t("authReloginPageTitle") : t("authPageTitle");
     });
 
     if (isIntroDismissed()) {
@@ -646,6 +684,19 @@ onBeforeUnmount(() => {
 #vnc-surface {
     height: 100%;
     width: 100%;
+}
+
+.vnc-mode-badge {
+    position: absolute;
+    top: @spacing-lg;
+    left: @spacing-lg;
+    z-index: 10;
+    padding: 6px 10px;
+    border-radius: @border-radius-md;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #fff;
+    font-size: @font-size-small;
 }
 
 #vnc-surface canvas {

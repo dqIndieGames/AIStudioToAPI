@@ -22,6 +22,8 @@ class CreateAuth {
         this.vncSession = null;
         this.currentLockToken = null; // Token to identify who holds the lock
         this.currentVncAbortController = null; // Controller to abort ongoing setup
+        this.sessionMode = "create";
+        this.sessionTargetIndex = null;
     }
 
     /**
@@ -176,6 +178,22 @@ class CreateAuth {
         };
 
         const sessionResources = {};
+        const requestBody = req.body || {};
+        const requestedMode = requestBody.mode === "relogin" ? "relogin" : "create";
+        let targetIndex = null;
+
+        if (requestedMode === "relogin") {
+            const parsedIndex = Number.parseInt(requestBody.targetIndex, 10);
+            if (
+                !Number.isInteger(parsedIndex) ||
+                !this.serverSystem.authSource.availableIndices.includes(parsedIndex)
+            ) {
+                this.currentLockToken = null;
+                this.currentVncAbortController = null;
+                return res.status(400).json({ error: "Invalid relogin target index.", message: "errorInvalidIndex" });
+            }
+            targetIndex = parsedIndex;
+        }
 
         try {
             // Check immediately
@@ -194,7 +212,7 @@ class CreateAuth {
             const isMobile = /Mobi|Android/i.test(userAgent);
             this.logger.info(`[VNC] Detected User-Agent: "${userAgent}". Is mobile: ${isMobile}`);
 
-            const { width, height } = req.body;
+            const { width, height } = requestBody;
             const screenWidth =
                 typeof width === "number" && width > 0 ? Math.floor(width / 2) * 2 : isMobile ? 412 : 1280;
             const screenHeight =
@@ -338,6 +356,7 @@ class CreateAuth {
             this.logger.info("[VNC] Launching browser for VNC session...");
             const { browser, context } = await this._runWithSignal(
                 this.serverSystem.browserManager.launchBrowserForVNC({
+                    authIndex: targetIndex,
                     env: { DISPLAY: display },
                     isMobile,
                 }),
@@ -412,6 +431,8 @@ class CreateAuth {
             );
 
             this.vncSession = sessionResources;
+            this.sessionMode = requestedMode;
+            this.sessionTargetIndex = targetIndex;
 
             this.logger.info(`[VNC] VNC session is live and accessible via the server's WebSocket proxy.`);
             res.json({ protocol: "websocket", success: true });
@@ -450,7 +471,10 @@ class CreateAuth {
             return res.status(400).json({ message: "errorVncNoSession" });
         }
 
-        let { accountName } = req.body;
+        const requestBody = req.body || {};
+        const requestMode = requestBody.mode === "relogin" ? "relogin" : "create";
+        const requestTargetIndex = Number.parseInt(requestBody.targetIndex, 10);
+        let { accountName } = requestBody;
         const { context, page } = this.vncSession;
         // Capture session ref to prevent global change affecting us
         const sessionRef = this.vncSession;
@@ -495,6 +519,28 @@ class CreateAuth {
             const storageState = await context.storageState();
             const authData = { ...storageState, accountName };
 
+            const reloginModeActive =
+                (this.sessionMode === "relogin" && Number.isInteger(this.sessionTargetIndex)) ||
+                (requestMode === "relogin" && Number.isInteger(requestTargetIndex));
+            const reloginTarget = Number.isInteger(this.sessionTargetIndex)
+                ? this.sessionTargetIndex
+                : requestTargetIndex;
+
+            if (reloginModeActive && Number.isInteger(reloginTarget)) {
+                this._overwriteAuthByIndex(reloginTarget, storageState, accountName);
+                this.serverSystem.authSource.reloadAuthSources();
+                if (typeof this.serverSystem.authSource.clearAuthExpired === "function") {
+                    this.serverSystem.authSource.clearAuthExpired(reloginTarget);
+                }
+
+                await this._cleanupVncSession("save_auth_relogin", sessionRef);
+                return res.status(200).json({
+                    accountName,
+                    index: reloginTarget,
+                    message: "vncAuthReloginSuccess",
+                });
+            }
+
             const configDir = path.join(process.cwd(), "configs", "auth");
             if (!fs.existsSync(configDir)) {
                 fs.mkdirSync(configDir, { recursive: true });
@@ -534,6 +580,22 @@ class CreateAuth {
         }
     }
 
+    _overwriteAuthByIndex(targetIndex, storageState, accountName) {
+        const authDir = path.join(process.cwd(), "configs", "auth");
+        const targetPath = path.join(authDir, `auth-${targetIndex}.json`);
+
+        const existingData = this.serverSystem.authSource.getAuth(targetIndex) || {};
+        existingData.cookies = storageState.cookies;
+        existingData.origins = storageState.origins;
+        if (accountName) {
+            existingData.accountName = accountName;
+        }
+
+        const tempPath = `${targetPath}.tmp`;
+        fs.writeFileSync(tempPath, JSON.stringify(existingData, null, 2), "utf-8");
+        fs.renameSync(tempPath, targetPath);
+    }
+
     async _cleanupVncSession(reason = "unknown", specificSession = null) {
         // If specific session provided, operate on it.
         // Otherwise use global (and nullify global if it matches).
@@ -550,6 +612,8 @@ class CreateAuth {
         }
 
         if (!sessionToCleanup) {
+            this.sessionMode = "create";
+            this.sessionTargetIndex = null;
             return;
         }
 
@@ -601,6 +665,8 @@ class CreateAuth {
         killProcess(x11vnc, "x11vnc");
         killProcess(xvfb, "Xvfb");
 
+        this.sessionMode = "create";
+        this.sessionTargetIndex = null;
         this.logger.info("[VNC] VNC session cleanup finished.");
     }
 }

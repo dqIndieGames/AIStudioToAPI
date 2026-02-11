@@ -20,9 +20,11 @@ class SetupAuthRunner {
             finishedAt: null,
             lastAuthFile: null,
             lastAuthIndex: null,
+            mode: "create",
             pid: null,
             running: false,
             startedAt: null,
+            targetIndex: null,
         };
         this._continueSent = false;
     }
@@ -34,9 +36,11 @@ class SetupAuthRunner {
             finishedAt: null,
             lastAuthFile: null,
             lastAuthIndex: null,
+            mode: "create",
             pid: null,
             running: false,
             startedAt: null,
+            targetIndex: null,
         };
         this._continueSent = false;
     }
@@ -57,23 +61,38 @@ class SetupAuthRunner {
         return { file: files[0].name, index: files[0].index };
     }
 
-    start() {
+    start(options = {}) {
         if (this.process) {
             return { message: "setupAuthAlreadyRunning", ok: false, status: 409 };
         }
 
         this._resetState();
 
+        const mode = options.mode === "relogin" ? "relogin" : "create";
+        const targetIndex = Number.isInteger(options.targetIndex) ? options.targetIndex : null;
+        if (mode === "relogin" && !Number.isInteger(targetIndex)) {
+            return { message: "errorInvalidIndex", ok: false, status: 400 };
+        }
+
+        this.state.mode = mode;
+        this.state.targetIndex = targetIndex;
+
         const nodePath = process.execPath;
-        const scriptPath = path.join(process.cwd(), "scripts", "auth", "setupAuth.js");
+        const scriptPath =
+            mode === "relogin"
+                ? path.join(process.cwd(), "scripts", "auth", "reloginAuth.js")
+                : path.join(process.cwd(), "scripts", "auth", "setupAuth.js");
+        const args = mode === "relogin" ? [scriptPath, String(targetIndex)] : [scriptPath];
         const env = {
             ...process.env,
             SETUP_AUTH_LANG: process.env.SETUP_AUTH_LANG || "zh",
+            SETUP_AUTH_MODE: mode,
+            SETUP_AUTH_TARGET_INDEX: Number.isInteger(targetIndex) ? String(targetIndex) : "",
             SystemRoot: process.env.SystemRoot || process.env.WINDIR || "C:\\Windows",
         };
 
         try {
-            const child = spawn(nodePath, [scriptPath], {
+            const child = spawn(nodePath, args, {
                 cwd: process.cwd(),
                 env,
                 stdio: ["pipe", "pipe", "pipe"],
@@ -101,9 +120,14 @@ class SetupAuthRunner {
                 this.state.exitCode = code;
                 this.state.finishedAt = Date.now();
 
-                const latest = this._findLatestAuthFile();
-                this.state.lastAuthFile = latest.file;
-                this.state.lastAuthIndex = latest.index;
+                if (mode === "relogin") {
+                    this.state.lastAuthFile = Number.isInteger(targetIndex) ? `auth-${targetIndex}.json` : null;
+                    this.state.lastAuthIndex = targetIndex;
+                } else {
+                    const latest = this._findLatestAuthFile();
+                    this.state.lastAuthFile = latest.file;
+                    this.state.lastAuthIndex = latest.index;
+                }
 
                 try {
                     this.serverSystem.authSource.reloadAuthSources();
@@ -115,12 +139,21 @@ class SetupAuthRunner {
                 this.process = null;
             });
 
-            return { message: "setupAuthStarted", ok: true, status: 200 };
+            return {
+                message: mode === "relogin" ? "setupAuthReloginStarted" : "setupAuthStarted",
+                ok: true,
+                status: 200,
+            };
         } catch (error) {
             this.process = null;
             this.state.running = false;
             this.state.error = error.message || String(error);
-            return { error: this.state.error, message: "setupAuthStartFailed", ok: false, status: 500 };
+            return {
+                error: this.state.error,
+                message: mode === "relogin" ? "setupAuthReloginStartFailed" : "setupAuthStartFailed",
+                ok: false,
+                status: 500,
+            };
         }
     }
 
@@ -135,7 +168,12 @@ class SetupAuthRunner {
                 this._continueSent = true;
                 return { message: "setupAuthContinueSent", ok: true, status: 200 };
             } catch (error) {
-                return { error: error.message || String(error), message: "setupAuthContinueFailed", ok: false, status: 500 };
+                return {
+                    error: error.message || String(error),
+                    message: "setupAuthContinueFailed",
+                    ok: false,
+                    status: 500,
+                };
             }
         }
 
