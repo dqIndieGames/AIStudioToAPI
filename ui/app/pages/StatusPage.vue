@@ -591,6 +591,25 @@
                                     </svg>
                                 </button>
                                 <button
+                                    :disabled="isBusy"
+                                    :title="t('btnValidateAccounts')"
+                                    @click="validateAllAccountsManual"
+                                >
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="20"
+                                        height="20"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </button>
+                                <button
                                     class="btn-warning"
                                     :disabled="isBusy"
                                     :title="t('btnDeduplicateAuth')"
@@ -1330,6 +1349,7 @@ import { useTheme } from "../utils/useTheme";
 const router = useRouter();
 const fileInput = ref(null);
 const activeTab = ref("home");
+const startupValidationAlertHandled = ref(false);
 
 // Create reactive version counter
 const langVersion = ref(0);
@@ -1364,6 +1384,7 @@ const { theme, setTheme } = useTheme();
 
 const state = reactive({
     accountDetails: [],
+    accountValidationRunning: false,
     apiKeySource: "",
     browserConnected: false,
     currentAuthIndex: -1,
@@ -1414,7 +1435,7 @@ const dedupedAvailableCount = computed(() => {
     return state.accountDetails.filter(acc => !acc.isDuplicate && !acc.isInvalid).length;
 });
 
-const isBusy = computed(() => state.isSwitchingAccount || state.isSystemBusy);
+const isBusy = computed(() => state.isSwitchingAccount || state.isSystemBusy || state.accountValidationRunning);
 
 const currentAccountInfo = computed(() => {
     if (state.currentAuthIndex < 0) {
@@ -1767,6 +1788,93 @@ const deleteAccountByIndex = async targetIndex => {
         });
 };
 
+const formatValidationReason = reason => {
+    const raw = reason || "accountValidationUnknownReason";
+    const translated = t(raw);
+    return translated === raw ? raw : translated;
+};
+
+const ackStartupValidationAlert = async () => {
+    try {
+        await fetch("/api/accounts/validate/startup-alert/ack", { method: "POST" });
+    } catch (err) {
+        console.warn("Ack startup validation alert failed:", err.message || err);
+    }
+};
+
+const maybeShowStartupValidationAlert = failedAccounts => {
+    if (startupValidationAlertHandled.value) {
+        return;
+    }
+    if (!Array.isArray(failedAccounts) || failedAccounts.length === 0) {
+        return;
+    }
+
+    startupValidationAlertHandled.value = true;
+    const lines = [];
+    for (let i = 0; i < failedAccounts.length; i++) {
+        const item = failedAccounts[i] || {};
+        const index = Number.isInteger(item.index) ? item.index : "-";
+        lines.push(
+            t("accountValidationFailedItem", {
+                index,
+                reason: formatValidationReason(item.reason),
+            })
+        );
+    }
+
+    ElMessageBox.alert(`${t("startupValidationPopupIntro")}\n${lines.join("\n")}`, t("startupValidationPopupTitle"), {
+        confirmButtonText: t("ok"),
+        lockScroll: false,
+        type: "warning",
+    }).finally(() => {
+        ackStartupValidationAlert();
+    });
+};
+
+const validateAllAccountsManual = () => {
+    ElMessageBox.confirm(t("accountValidationConfirm"), t("warningTitle"), {
+        cancelButtonText: t("cancel"),
+        confirmButtonText: t("ok"),
+        lockScroll: false,
+        type: "warning",
+    })
+        .then(async () => {
+            const notification = ElNotification({
+                duration: 0,
+                message: t("operationInProgress"),
+                title: t("accountValidation"),
+                type: "warning",
+            });
+
+            state.isSwitchingAccount = true;
+            try {
+                const res = await fetch("/api/accounts/validate", { method: "POST" });
+                const data = await res.json();
+                const message = t(data.message || "accountValidationFailed", data);
+
+                if (!res.ok) {
+                    ElMessage.error(message);
+                } else if (data.failedCount > 0) {
+                    ElMessage.warning(message);
+                } else {
+                    ElMessage.success(message);
+                }
+            } catch (err) {
+                ElMessage.error(t("accountValidationFailed", { error: err.message || err }));
+            } finally {
+                state.isSwitchingAccount = false;
+                notification.close();
+                updateContent();
+            }
+        })
+        .catch(e => {
+            if (e !== "cancel") {
+                console.error(e);
+            }
+        });
+};
+
 const deduplicateAuth = () => {
     ElMessageBox.confirm(t("accountDedupConfirm"), t("warningTitle"), {
         cancelButtonText: t("cancel"),
@@ -2034,6 +2142,8 @@ const updateStatus = data => {
     state.logMaxCount = data.status.logMaxCount || 100;
     state.logs = data.logs || "";
     state.isSystemBusy = data.status.isSystemBusy;
+    state.accountValidationRunning = !!(data.status.accountValidation && data.status.accountValidation.running);
+    maybeShowStartupValidationAlert(data.status.startupValidationAlert || []);
 
     nextTick(() => {
         state.isUpdating = false;

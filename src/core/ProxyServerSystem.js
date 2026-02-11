@@ -84,6 +84,14 @@ class ProxyServerSystem extends EventEmitter {
         this.httpServer = null;
         this.wsServer = null;
         this.webRoutes = new WebRoutes(this);
+
+        this.accountValidationState = {
+            lastRunAt: 0,
+            lastSource: "",
+            result: null,
+            running: false,
+            startupAlertPending: false,
+        };
     }
 
     async start(initialAuthIndex = null) {
@@ -98,7 +106,8 @@ class ProxyServerSystem extends EventEmitter {
         if (allAvailableIndices.length === 0) {
             this.logger.warn("[System] No available authentication source. Starting in account binding mode.");
             this.emit("started");
-            return; // Exit early
+            this._scheduleStartupAccountValidation();
+            return;
         }
 
         let startupOrder = allRotationIndices.length > 0 ? [...allRotationIndices] : [...allAvailableIndices];
@@ -152,6 +161,137 @@ class ProxyServerSystem extends EventEmitter {
         }
 
         this.emit("started");
+        this._scheduleStartupAccountValidation();
+    }
+
+    _scheduleStartupAccountValidation() {
+        const initialIndices = this.authSource.initialIndices || [];
+        if (initialIndices.length === 0) {
+            return;
+        }
+
+        setTimeout(() => {
+            this.validateAllAccounts({ alertOnFailure: true, source: "startup" }).catch(error => {
+                this.logger.error(`[Auth] Startup validation failed: ${error.message}`);
+            });
+        }, 1200);
+    }
+
+    async validateAllAccounts(options = {}) {
+        const source = options.source || "manual";
+        const alertOnFailure = options.alertOnFailure === true;
+
+        if (this.accountValidationState.running) {
+            return {
+                checkedAt: Date.now(),
+                failedAccounts: [],
+                failedCount: 0,
+                message: "accountValidationRunning",
+                passedCount: 0,
+                total: 0,
+            };
+        }
+
+        if (this.requestHandler?.isSystemBusy) {
+            return {
+                checkedAt: Date.now(),
+                failedAccounts: [],
+                failedCount: 0,
+                message: "accountValidationBusy",
+                passedCount: 0,
+                total: 0,
+            };
+        }
+
+        const initialIndices = this.authSource.initialIndices || [];
+        const availableIndices = this.authSource.availableIndices || [];
+        const availableSet = new Set(availableIndices);
+        const originalIndex = this.requestHandler.currentAuthIndex;
+        const failedAccounts = [];
+        const passedIndices = [];
+        let checkedValidJsonCount = 0;
+
+        this.accountValidationState.running = true;
+        this.accountValidationState.lastSource = source;
+        if (this.requestHandler?.authSwitcher) {
+            this.requestHandler.authSwitcher.isSystemBusy = true;
+        }
+
+        try {
+            for (let i = 0; i < initialIndices.length; i++) {
+                const index = initialIndices[i];
+
+                if (!availableSet.has(index)) {
+                    failedAccounts.push({ index, reason: "accountValidationInvalidJsonReason" });
+                    continue;
+                }
+
+                checkedValidJsonCount++;
+                try {
+                    await this.browserManager.launchOrSwitchContext(index);
+                    this.authSource.clearAuthExpired(index);
+                    passedIndices.push(index);
+                } catch (error) {
+                    const reason = error && error.message ? error.message : "accountValidationUnknownReason";
+                    this.authSource.markAuthExpired(index, reason);
+                    failedAccounts.push({ index, reason });
+                }
+            }
+
+            const restore = {
+                attempted: true,
+                index: originalIndex,
+                reason: "",
+                success: false,
+            };
+
+            if (Number.isInteger(originalIndex) && originalIndex >= 0 && availableSet.has(originalIndex)) {
+                try {
+                    await this.browserManager.launchOrSwitchContext(originalIndex);
+                    this.authSource.clearAuthExpired(originalIndex);
+                    restore.success = true;
+                } catch (error) {
+                    restore.reason = error && error.message ? error.message : "restoreCurrentAccountFailed";
+                    this.authSource.markAuthExpired(originalIndex, restore.reason);
+                }
+            } else {
+                if (Number.isInteger(originalIndex) && originalIndex >= 0 && !availableSet.has(originalIndex)) {
+                    restore.reason = "originalAccountUnavailable";
+                }
+                try {
+                    await this.browserManager.closeBrowser();
+                    restore.success = true;
+                } catch (error) {
+                    restore.reason =
+                        restore.reason || (error && error.message ? error.message : "restoreCurrentAccountFailed");
+                }
+            }
+
+            const result = {
+                checkedAt: Date.now(),
+                checkedValidJsonCount,
+                failedAccounts,
+                failedCount: failedAccounts.length,
+                passedCount: passedIndices.length,
+                passedIndices,
+                restore,
+                source,
+                total: initialIndices.length,
+            };
+
+            this.accountValidationState.lastRunAt = result.checkedAt;
+            this.accountValidationState.result = result;
+            if (alertOnFailure) {
+                this.accountValidationState.startupAlertPending = result.failedCount > 0;
+            }
+
+            return result;
+        } finally {
+            if (this.requestHandler?.authSwitcher) {
+                this.requestHandler.authSwitcher.isSystemBusy = false;
+            }
+            this.accountValidationState.running = false;
+        }
     }
 
     _createAuthMiddleware() {

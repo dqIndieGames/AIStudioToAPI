@@ -242,6 +242,42 @@ class StatusRoutes {
             }
         });
 
+        app.post("/api/accounts/validate", isAuthenticated, async (req, res) => {
+            try {
+                const result = await this.serverSystem.validateAllAccounts({
+                    alertOnFailure: false,
+                    source: "manual",
+                });
+
+                if (result.message === "accountValidationRunning" || result.message === "accountValidationBusy") {
+                    return res.status(409).json({ message: result.message });
+                }
+
+                const message =
+                    result.failedCount > 0 ? "accountValidationDoneWithFailed" : "accountValidationDoneAllPassed";
+
+                return res.status(200).json({
+                    checkedAt: result.checkedAt,
+                    failedAccounts: result.failedAccounts,
+                    failedCount: result.failedCount,
+                    message,
+                    passedCount: result.passedCount,
+                    total: result.total,
+                });
+            } catch (error) {
+                this.logger.error(`[Auth] Manual validation failed: ${error.message}`);
+                return res.status(500).json({
+                    error: error.message,
+                    message: "accountValidationFailed",
+                });
+            }
+        });
+
+        app.post("/api/accounts/validate/startup-alert/ack", isAuthenticated, (req, res) => {
+            this.serverSystem.accountValidationState.startupAlertPending = false;
+            return res.status(200).json({ message: "accountValidationStartupAlertAcked" });
+        });
+
         app.delete("/api/accounts/:index", isAuthenticated, (req, res) => {
             const rawIndex = req.params.index;
             const targetIndex = Number(rawIndex);
@@ -425,6 +461,9 @@ class StatusRoutes {
         const limit = this.logger.displayLimit || 100;
         const allLogs = this.logger.logBuffer || [];
         const displayLogs = allLogs.slice(-limit);
+        const validationState = this.serverSystem.accountValidationState || {};
+        const validationResult = validationState.result || null;
+
         const accountNameMap = authSource.accountNameMap;
         const accountDetails = initialIndices.map(index => {
             const isInvalid = invalidIndices.includes(index);
@@ -470,6 +509,14 @@ class StatusRoutes {
             logs: displayLogs.join("\n"),
             status: {
                 accountDetails,
+                accountValidation: {
+                    checkedAt: validationResult ? validationResult.checkedAt : 0,
+                    failedCount: validationResult ? validationResult.failedCount : 0,
+                    passedCount: validationResult ? validationResult.passedCount : 0,
+                    running: !!validationState.running,
+                    source: validationResult ? validationResult.source : "",
+                    total: validationResult ? validationResult.total : 0,
+                },
                 apiKeySource: config.apiKeySource,
                 browserConnected: !!browserManager.browser,
                 currentAccountName,
@@ -490,9 +537,13 @@ class StatusRoutes {
                 logMaxCount: limit,
                 platform: process.platform,
                 rotationIndicesRaw: rotationIndices,
+                startupValidationAlert:
+                    validationState.startupAlertPending && validationResult
+                        ? validationResult.failedAccounts || []
+                        : [],
                 streamingMode: this.serverSystem.streamingMode,
-                vncSupported: process.platform !== "win32",
                 usageCount,
+                vncSupported: process.platform !== "win32",
             },
         };
     }
