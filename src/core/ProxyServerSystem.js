@@ -90,6 +90,7 @@ class ProxyServerSystem extends EventEmitter {
             lastSource: "",
             result: null,
             running: false,
+            startupAlertFailedAccounts: [],
             startupAlertPending: false,
         };
     }
@@ -178,6 +179,7 @@ class ProxyServerSystem extends EventEmitter {
     }
 
     async validateAllAccounts(options = {}) {
+        // 改为轻量旁路检测，不切换主业务 context、不恢复主账号
         const source = options.source || "manual";
         const alertOnFailure = options.alertOnFailure === true;
 
@@ -206,64 +208,54 @@ class ProxyServerSystem extends EventEmitter {
         const initialIndices = this.authSource.initialIndices || [];
         const availableIndices = this.authSource.availableIndices || [];
         const availableSet = new Set(availableIndices);
-        const originalIndex = this.requestHandler.currentAuthIndex;
         const failedAccounts = [];
         const passedIndices = [];
+        const configuredTimeout = Number(this.config.accountValidationTimeoutMs);
+        const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 25000;
         let checkedValidJsonCount = 0;
+        let sharedValidationBrowser = null;
 
         this.accountValidationState.running = true;
         this.accountValidationState.lastSource = source;
-        if (this.requestHandler?.authSwitcher) {
-            this.requestHandler.authSwitcher.isSystemBusy = true;
-        }
 
         try {
+            if (initialIndices.length > 0 && !this.browserManager.browser) {
+                try {
+                    sharedValidationBrowser = await this.browserManager.createLightweightValidationBrowser();
+                } catch (error) {
+                    this.logger.warn(`[AuthLite] Shared validation browser startup failed: ${error.message}`);
+                }
+            }
+
             for (let i = 0; i < initialIndices.length; i++) {
                 const index = initialIndices[i];
+                this.logger.info(`[AuthLite] Checking account #${index} (${i + 1}/${initialIndices.length})`);
 
                 if (!availableSet.has(index)) {
-                    failedAccounts.push({ index, reason: "accountValidationInvalidJsonReason" });
+                    failedAccounts.push({ index, reason: "invalid_json" });
                     continue;
                 }
 
                 checkedValidJsonCount++;
-                try {
-                    await this.browserManager.launchOrSwitchContext(index);
-                    this.authSource.clearAuthExpired(index);
+
+                const check = await this.browserManager.validateAuthLightweight(index, {
+                    timeoutMs,
+                    validationBrowser: sharedValidationBrowser,
+                });
+
+                if (check.ok) {
                     passedIndices.push(index);
-                } catch (error) {
-                    const reason = error && error.message ? error.message : "accountValidationUnknownReason";
-                    this.authSource.markAuthExpired(index, reason);
+                    this.authSource.clearAuthExpired(index);
+                    this.logger.info(`[AuthLite] Account #${index} passed.`);
+                } else {
+                    const reason = check.reason || "unknown_error";
                     failedAccounts.push({ index, reason });
+                    this.authSource.markAuthExpired(index, reason);
+                    this.logger.warn(`[AuthLite] Account #${index} failed: ${reason}`);
                 }
-            }
 
-            const restore = {
-                attempted: true,
-                index: originalIndex,
-                reason: "",
-                success: false,
-            };
-
-            if (Number.isInteger(originalIndex) && originalIndex >= 0 && availableSet.has(originalIndex)) {
-                try {
-                    await this.browserManager.launchOrSwitchContext(originalIndex);
-                    this.authSource.clearAuthExpired(originalIndex);
-                    restore.success = true;
-                } catch (error) {
-                    restore.reason = error && error.message ? error.message : "restoreCurrentAccountFailed";
-                    this.authSource.markAuthExpired(originalIndex, restore.reason);
-                }
-            } else {
-                if (Number.isInteger(originalIndex) && originalIndex >= 0 && !availableSet.has(originalIndex)) {
-                    restore.reason = "originalAccountUnavailable";
-                }
-                try {
-                    await this.browserManager.closeBrowser();
-                    restore.success = true;
-                } catch (error) {
-                    restore.reason =
-                        restore.reason || (error && error.message ? error.message : "restoreCurrentAccountFailed");
+                if (i < initialIndices.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 120));
                 }
             }
 
@@ -274,21 +266,24 @@ class ProxyServerSystem extends EventEmitter {
                 failedCount: failedAccounts.length,
                 passedCount: passedIndices.length,
                 passedIndices,
-                restore,
                 source,
+                strategy: "lightweight",
                 total: initialIndices.length,
             };
 
             this.accountValidationState.lastRunAt = result.checkedAt;
             this.accountValidationState.result = result;
+
             if (alertOnFailure) {
                 this.accountValidationState.startupAlertPending = result.failedCount > 0;
+                this.accountValidationState.startupAlertFailedAccounts =
+                    result.failedCount > 0 ? [...result.failedAccounts] : [];
             }
 
             return result;
         } finally {
-            if (this.requestHandler?.authSwitcher) {
-                this.requestHandler.authSwitcher.isSystemBusy = false;
+            if (sharedValidationBrowser) {
+                await sharedValidationBrowser.close().catch(() => {});
             }
             this.accountValidationState.running = false;
         }

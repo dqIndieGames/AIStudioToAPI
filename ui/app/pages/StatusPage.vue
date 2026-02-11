@@ -592,10 +592,37 @@
                                 </button>
                                 <button
                                     :disabled="isBusy"
-                                    :title="t('btnValidateAccounts')"
+                                    :title="
+                                        state.accountValidationRunning || state.isValidatingAccounts
+                                            ? t('operationInProgress')
+                                            : t('btnValidateAccounts')
+                                    "
                                     @click="validateAllAccountsManual"
                                 >
                                     <svg
+                                        v-if="state.accountValidationRunning || state.isValidatingAccounts"
+                                        class="is-spinning"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="20"
+                                        height="20"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <line x1="12" y1="2" x2="12" y2="6"></line>
+                                        <line x1="12" y1="18" x2="12" y2="22"></line>
+                                        <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                                        <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                                        <line x1="2" y1="12" x2="6" y2="12"></line>
+                                        <line x1="18" y1="12" x2="22" y2="12"></line>
+                                        <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                                        <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                                    </svg>
+                                    <svg
+                                        v-else
                                         xmlns="http://www.w3.org/2000/svg"
                                         width="20"
                                         height="20"
@@ -1399,6 +1426,7 @@ const state = reactive({
     isSwitchingAccount: false,
     isSystemBusy: false,
     isUpdating: false,
+    isValidatingAccounts: false,
     latestVersion: null,
     logCount: 0,
     logs: t("loading"),
@@ -1435,7 +1463,9 @@ const dedupedAvailableCount = computed(() => {
     return state.accountDetails.filter(acc => !acc.isDuplicate && !acc.isInvalid).length;
 });
 
-const isBusy = computed(() => state.isSwitchingAccount || state.isSystemBusy || state.accountValidationRunning);
+const isBusy = computed(
+    () => state.isSwitchingAccount || state.isSystemBusy || state.accountValidationRunning || state.isValidatingAccounts
+);
 
 const currentAccountInfo = computed(() => {
     if (state.currentAuthIndex < 0) {
@@ -1833,6 +1863,7 @@ const maybeShowStartupValidationAlert = failedAccounts => {
 };
 
 const validateAllAccountsManual = () => {
+    // 调用轻量检测接口并在失败时弹出逐账号明细
     ElMessageBox.confirm(t("accountValidationConfirm"), t("warningTitle"), {
         cancelButtonText: t("cancel"),
         confirmButtonText: t("ok"),
@@ -1848,15 +1879,46 @@ const validateAllAccountsManual = () => {
             });
 
             state.isSwitchingAccount = true;
+            state.isValidatingAccounts = true;
+
             try {
-                const res = await fetch("/api/accounts/validate", { method: "POST" });
+                const res = await fetch("/api/accounts/validate-lite", {
+                    body: JSON.stringify({ source: "manual" }),
+                    headers: { "Content-Type": "application/json" },
+                    method: "POST",
+                });
                 const data = await res.json();
                 const message = t(data.message || "accountValidationFailed", data);
 
                 if (!res.ok) {
-                    ElMessage.error(message);
+                    if (data.message === "accountValidationRunning" || data.message === "accountValidationBusy") {
+                        ElMessage.warning(message);
+                    } else {
+                        ElMessage.error(message);
+                    }
                 } else if (data.failedCount > 0) {
                     ElMessage.warning(message);
+                    const failedAccounts = Array.isArray(data.failedAccounts) ? data.failedAccounts : [];
+                    if (failedAccounts.length > 0) {
+                        let detailText = "";
+                        for (let i = 0; i < failedAccounts.length; i++) {
+                            const item = failedAccounts[i] || {};
+                            const index = Number.isInteger(item.index) ? item.index : "-";
+                            detailText += `${i + 1}. ${t("accountValidationFailedItem", {
+                                index,
+                                reason: formatValidationReason(item.reason),
+                            })}`;
+                            if (i < failedAccounts.length - 1) {
+                                detailText += "\n";
+                            }
+                        }
+
+                        await ElMessageBox.alert(`${message}\n${detailText}`, t("accountValidation"), {
+                            confirmButtonText: t("ok"),
+                            lockScroll: false,
+                            type: "warning",
+                        });
+                    }
                 } else {
                     ElMessage.success(message);
                 }
@@ -1864,6 +1926,7 @@ const validateAllAccountsManual = () => {
                 ElMessage.error(t("accountValidationFailed", { error: err.message || err }));
             } finally {
                 state.isSwitchingAccount = false;
+                state.isValidatingAccounts = false;
                 notification.close();
                 updateContent();
             }
@@ -2415,6 +2478,19 @@ watchEffect(() => {
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+.is-spinning {
+    animation: validation-spin 1s linear infinite;
+}
+
+@keyframes validation-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
     }
 }
 

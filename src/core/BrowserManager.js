@@ -1258,6 +1258,143 @@ class BrowserManager {
         }
     }
 
+    async createLightweightValidationBrowser() {
+        // 轻量检测专用浏览器，仅用于临时 context 校验
+        if (!fs.existsSync(this.browserExecutablePath)) {
+            throw new Error(`Browser executable not found at path: ${this.browserExecutablePath}`);
+        }
+
+        const validationBrowser = await firefox.launch({
+            args: this.launchArgs,
+            executablePath: this.browserExecutablePath,
+            firefoxUserPrefs: this.firefoxUserPrefs,
+            headless: true,
+        });
+
+        validationBrowser.on("disconnected", () => {
+            this.logger.warn("[AuthLite] Lightweight validation browser disconnected.");
+        });
+
+        return validationBrowser;
+    }
+
+    async validateAuthLightweight(authIndex, options = {}) {
+        // 轻量校验使用临时 context/page，不触碰主业务 this.context/this.page
+        const timeoutMs =
+            Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? Math.floor(options.timeoutMs) : 25000;
+        const targetUrl =
+            options.targetUrl ||
+            "https://aistudio.google.com/u/0/apps/bundled/blank?showPreview=true&showCode=true&showAssistant=true";
+
+        const storageStateObject = this.authSource.getAuth(authIndex);
+        if (!storageStateObject) {
+            return { ok: false, reason: "invalid_json" };
+        }
+
+        let validationBrowser = options.validationBrowser || this.browser;
+        let ownedBrowser = null;
+        let tempContext = null;
+
+        try {
+            if (
+                validationBrowser &&
+                typeof validationBrowser.isConnected === "function" &&
+                !validationBrowser.isConnected()
+            ) {
+                validationBrowser = null;
+            }
+
+            if (!validationBrowser) {
+                ownedBrowser = await this.createLightweightValidationBrowser();
+                validationBrowser = ownedBrowser;
+            }
+
+            tempContext = await validationBrowser.newContext({
+                deviceScaleFactor: 1,
+                storageState: storageStateObject,
+                viewport: { height: 768, width: 1366 },
+            });
+
+            const tempPage = await tempContext.newPage();
+            await tempPage.goto(targetUrl, {
+                timeout: timeoutMs,
+                waitUntil: "domcontentloaded",
+            });
+
+            const currentUrlRaw = tempPage.url() || "";
+            const currentUrl = currentUrlRaw.toLowerCase();
+            let pageTitle = "";
+            try {
+                pageTitle = (await tempPage.title()) || "";
+            } catch (e) {
+                pageTitle = "";
+            }
+            const titleLower = pageTitle.toLowerCase();
+
+            if (
+                currentUrl.includes("accounts.google.com") ||
+                currentUrl.includes("servicelogin") ||
+                titleLower.includes("sign in") ||
+                pageTitle.includes("登录")
+            ) {
+                return { ok: false, reason: "cookie_expired" };
+            }
+
+            if (titleLower.includes("available regions") || titleLower.includes("not available")) {
+                return { ok: false, reason: "region_restricted" };
+            }
+
+            if (titleLower.includes("403") || titleLower.includes("forbidden") || currentUrl.includes("/403")) {
+                return { ok: false, reason: "ip_forbidden" };
+            }
+
+            if (currentUrlRaw === "about:blank") {
+                return { ok: false, reason: "page_load_failed" };
+            }
+
+            return { ok: true, reason: "healthy" };
+        } catch (error) {
+            const msg = (error && error.message ? error.message : "").toLowerCase();
+            let reason = "unknown_error";
+
+            if (msg.includes("timeout")) {
+                reason = "timeout";
+            } else if (
+                msg.includes("net::err") ||
+                msg.includes("navigation failed") ||
+                msg.includes("about:blank") ||
+                msg.includes("page was closed") ||
+                msg.includes("browser has been closed")
+            ) {
+                reason = "page_load_failed";
+            } else if (msg.includes("forbidden") || msg.includes("403")) {
+                reason = "ip_forbidden";
+            } else if (msg.includes("region") || msg.includes("not available")) {
+                reason = "region_restricted";
+            } else if (
+                msg.includes("google login") ||
+                msg.includes("signin") ||
+                msg.includes("sign in") ||
+                msg.includes("cookie")
+            ) {
+                reason = "cookie_expired";
+            }
+
+            return {
+                error: error && error.message ? error.message : "",
+                ok: false,
+                reason,
+            };
+        } finally {
+            if (tempContext) {
+                await tempContext.close().catch(() => {});
+            }
+            if (ownedBrowser) {
+                await ownedBrowser.close().catch(() => {});
+            }
+        }
+    }
+
     /**
      * Unified cleanup method for the main browser instance.
      * Handles intervals, timeouts, and resetting all references.

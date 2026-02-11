@@ -242,11 +242,11 @@ class StatusRoutes {
             }
         });
 
-        app.post("/api/accounts/validate", isAuthenticated, async (req, res) => {
+        const handleValidateLiteRequest = async (req, res) => {
             try {
                 const result = await this.serverSystem.validateAllAccounts({
                     alertOnFailure: false,
-                    source: "manual",
+                    source: req.body && req.body.source ? req.body.source : "manual",
                 });
 
                 if (result.message === "accountValidationRunning" || result.message === "accountValidationBusy") {
@@ -265,16 +265,20 @@ class StatusRoutes {
                     total: result.total,
                 });
             } catch (error) {
-                this.logger.error(`[Auth] Manual validation failed: ${error.message}`);
+                this.logger.error(`[Auth] Manual lite validation failed: ${error.message}`);
                 return res.status(500).json({
                     error: error.message,
                     message: "accountValidationFailed",
                 });
             }
-        });
+        };
+
+        app.post("/api/accounts/validate-lite", isAuthenticated, handleValidateLiteRequest);
+        app.post("/api/accounts/validate", isAuthenticated, handleValidateLiteRequest);
 
         app.post("/api/accounts/validate/startup-alert/ack", isAuthenticated, (req, res) => {
             this.serverSystem.accountValidationState.startupAlertPending = false;
+            this.serverSystem.accountValidationState.startupAlertFailedAccounts = [];
             return res.status(200).json({ message: "accountValidationStartupAlertAcked" });
         });
 
@@ -463,6 +467,9 @@ class StatusRoutes {
         const displayLogs = allLogs.slice(-limit);
         const validationState = this.serverSystem.accountValidationState || {};
         const validationResult = validationState.result || null;
+        const startupAlertList = Array.isArray(validationState.startupAlertFailedAccounts)
+            ? validationState.startupAlertFailedAccounts
+            : [];
 
         const accountNameMap = authSource.accountNameMap;
         const accountDetails = initialIndices.map(index => {
@@ -512,6 +519,7 @@ class StatusRoutes {
                 accountValidation: {
                     checkedAt: validationResult ? validationResult.checkedAt : 0,
                     failedCount: validationResult ? validationResult.failedCount : 0,
+                    lastResult: validationResult || null,
                     passedCount: validationResult ? validationResult.passedCount : 0,
                     running: !!validationState.running,
                     source: validationResult ? validationResult.source : "",
@@ -537,10 +545,7 @@ class StatusRoutes {
                 logMaxCount: limit,
                 platform: process.platform,
                 rotationIndicesRaw: rotationIndices,
-                startupValidationAlert:
-                    validationState.startupAlertPending && validationResult
-                        ? validationResult.failedAccounts || []
-                        : [],
+                startupValidationAlert: validationState.startupAlertPending ? startupAlertList : [],
                 streamingMode: this.serverSystem.streamingMode,
                 usageCount,
                 vncSupported: process.platform !== "win32",
