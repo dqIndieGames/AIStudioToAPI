@@ -20,8 +20,8 @@ class FormatConverter {
     static THINKING_LEVEL_MAP = {
         high: "HIGH",
         low: "LOW",
-        mid: "MEDIUM",
         medium: "MEDIUM",
+        mid: "MEDIUM",
         minimal: "MINIMAL",
     };
 
@@ -122,9 +122,6 @@ class FormatConverter {
             return geminiBody;
         }
 
-        // [DEBUG] Log original Gemini tools before sanitization
-        this.logger.debug(`[Adapter] Debug: original Gemini tools = ${JSON.stringify(geminiBody.tools, null, 2)}`);
-
         // Helper function to recursively sanitize schema:
         // 1. Remove unsupported fields ($schema, additionalProperties)
         // 2. Convert lowercase type to uppercase (object -> OBJECT, string -> STRING, etc.)
@@ -163,8 +160,12 @@ class FormatConverter {
 
         // Process each tool
         for (const tool of geminiBody.tools) {
-            if (tool.functionDeclarations && Array.isArray(tool.functionDeclarations)) {
-                for (const funcDecl of tool.functionDeclarations) {
+            const declarations =
+                Array.isArray(tool.functionDeclarations) && tool.functionDeclarations.length > 0
+                    ? tool.functionDeclarations
+                    : tool.function_declarations;
+            if (declarations && Array.isArray(declarations)) {
+                for (const funcDecl of declarations) {
                     if (funcDecl.parameters) {
                         funcDecl.parameters = sanitizeSchema(funcDecl.parameters);
                     }
@@ -172,10 +173,6 @@ class FormatConverter {
             }
         }
 
-        // [DEBUG] Log sanitized Gemini tools after processing
-        this.logger.debug(`[Adapter] Debug: sanitized Gemini tools = ${JSON.stringify(geminiBody.tools, null, 2)}`);
-
-        this.logger.info("[Adapter] Sanitized Gemini tools (removed unsupported fields, converted type to uppercase)");
         return geminiBody;
     }
 
@@ -185,9 +182,10 @@ class FormatConverter {
      *
      * @param {Object} obj - The schema object to convert
      * @param {boolean} [isResponseSchema=false] - If true, applies stricter rules (e.g. anyOf for unions) for Structured Outputs
+     * @param {boolean} [isProperties=false] - If true, the current object is a map of property definitions, so keys should not be filtered
      * @returns {Object} The converted schema
      */
-    _convertSchemaToGemini(obj, isResponseSchema = false) {
+    _convertSchemaToGemini(obj, isResponseSchema = false, isProperties = false) {
         if (!obj || typeof obj !== "object") return obj;
 
         const result = Array.isArray(obj) ? [] : {};
@@ -209,14 +207,48 @@ class FormatConverter {
 
             if (isResponseSchema) {
                 // For Structured Outputs: stricter filtering of metadata that causes 400 errors
-                unsupportedKeys.push("title", "default", "examples", "$defs", "id");
+                unsupportedKeys.push("default", "examples", "$defs", "id");
             }
 
-            if (unsupportedKeys.includes(key)) {
+            // ONLY Filter metadata keywords if NOT a property name (isProperties is false)
+            if (!isProperties && unsupportedKeys.includes(key)) {
                 continue;
             }
 
-            if (key === "type") {
+            // Handle anyOf specially (only when it is a schema keyword),
+            // but `{"type":"OBJECT","properties":{"isNewTopic":{"type":"BOOLEAN"},"title":{"anyOf":[{"type":"STRING"},{"type":"NULL"}]}},"required":["isNewTopic","title"]}` is right, need to confirm
+            if (key === "anyOf" && !isProperties) {
+                if (Array.isArray(obj[key])) {
+                    const variants = obj[key];
+                    const hasNull = variants.some(v => v.type === "null");
+                    const nonNullVariants = variants.filter(v => v.type !== "null");
+
+                    if (hasNull) {
+                        result.nullable = true;
+                    }
+
+                    if (nonNullVariants.length === 1) {
+                        // Collapse single variant. Reset isProperties to false for the variant's schema.
+                        const converted = this._convertSchemaToGemini(nonNullVariants[0], isResponseSchema, false);
+                        // Merge converted properties into result
+                        Object.assign(result, converted);
+                        if (hasNull) result.nullable = true;
+                        continue; // Skip setting 'anyOf' explicitly
+                    } else if (nonNullVariants.length > 0) {
+                        // Keep anyOf for multiple variants. Reset isProperties for sub-schemas.
+                        result.anyOf = nonNullVariants.map(v =>
+                            this._convertSchemaToGemini(v, isResponseSchema, false)
+                        );
+                        continue;
+                    } else if (hasNull) {
+                        // Only null type? Keep it as nullable without forcing a specific type.
+                        continue;
+                    }
+                }
+            }
+
+            // Handle type specially (only when it is a schema keyword)
+            if (key === "type" && !isProperties) {
                 if (Array.isArray(obj[key])) {
                     // Handle nullable types like ["string", "null"]
                     const types = obj[key];
@@ -248,11 +280,12 @@ class FormatConverter {
                     // Convert lowercase type to uppercase for Gemini
                     result[key] = obj[key].toUpperCase();
                 } else if (typeof obj[key] === "object" && obj[key] !== null) {
-                    result[key] = this._convertSchemaToGemini(obj[key], isResponseSchema);
+                    // Type being an object is a sub-schema definition, not property name mapping
+                    result[key] = this._convertSchemaToGemini(obj[key], isResponseSchema, false);
                 } else {
                     result[key] = obj[key];
                 }
-            } else if (key === "enum") {
+            } else if (key === "enum" && !isProperties) {
                 // 2. Ensure all enum values are strings (Only for Response Schema)
                 if (isResponseSchema) {
                     if (Array.isArray(obj[key])) {
@@ -266,7 +299,14 @@ class FormatConverter {
                     result[key] = obj[key];
                 }
             } else if (typeof obj[key] === "object" && obj[key] !== null) {
-                result[key] = this._convertSchemaToGemini(obj[key], isResponseSchema);
+                // Recursion logic:
+                // - If key is 'properties', next level is a map of property NAMES. Set isProperties = true.
+                // - Otherwise, if we were currently in a properties map (isProperties is true),
+                //   the value is a schema definition. For its keys, isProperties MUST be false.
+                const nextIsProperties = key === "properties";
+                const recursionFlag = isProperties ? false : nextIsProperties;
+
+                result[key] = this._convertSchemaToGemini(obj[key], isResponseSchema, recursionFlag);
             } else {
                 result[key] = obj[key];
             }
@@ -295,10 +335,6 @@ class FormatConverter {
 
         // [DEBUG] Log incoming messages for troubleshooting
         this.logger.debug(`[Adapter] Debug: incoming OpenAI Body = ${JSON.stringify(openaiBody, null, 2)}`);
-        // [DEBUG] Log original OpenAI tools
-        if (openaiBody.tools && openaiBody.tools.length > 0) {
-            this.logger.debug(`[Adapter] Debug: original OpenAI tools = ${JSON.stringify(openaiBody.tools, null, 2)}`);
-        }
 
         let systemInstruction = null;
         const googleContents = [];
@@ -521,9 +557,6 @@ class FormatConverter {
         flushToolParts();
 
         // Build Google request
-        this.logger.debug(`[Adapter] Debug: googleContents length = ${googleContents.length}`);
-        // [DEBUG] Log full googleContents for troubleshooting thoughtSignature issue
-        this.logger.debug(`[Adapter] Debug: googleContents = ${JSON.stringify(googleContents, null, 2)}`);
         const googleRequest = {
             contents: googleContents,
             ...(systemInstruction && {
@@ -579,9 +612,8 @@ class FormatConverter {
 
         // Force thinking mode
         if (this.serverSystem.forceThinking && !thinkingConfig) {
-            this.logger.info(
-                "[Adapter] ⚠️ Force thinking enabled and client did not provide config, injecting thinkingConfig."
-            );
+            this.logger.info("[Adapter] ⚠️ Force thinking enabled, injecting thinkingConfig for OpenAI request.");
+
             thinkingConfig = { includeThoughts: true };
         }
 
@@ -631,13 +663,8 @@ class FormatConverter {
             }
 
             if (functionDeclarations.length > 0) {
-                if (!googleRequest.tools) {
-                    googleRequest.tools = [];
-                }
-                googleRequest.tools.push({ functionDeclarations });
-                this.logger.info(
-                    `[Adapter] Converted ${functionDeclarations.length} OpenAI tool(s) to Gemini functionDeclarations`
-                );
+                googleRequest.tools = [{ functionDeclarations }];
+                this.logger.info(`[Adapter] Converted ${functionDeclarations.length} OpenAI tool(s) to Gemini format`);
             }
         }
 
@@ -698,13 +725,6 @@ class FormatConverter {
                         this.logger.info(
                             `[Adapter] Converted OpenAI response_format to Gemini responseSchema: ${jsonSchema.name || "unnamed"}`
                         );
-
-                        // Log warning if tools are also present (may cause conflicts)
-                        if (googleRequest.tools && googleRequest.tools.length > 0) {
-                            this.logger.warn(
-                                "[Adapter] ⚠️ Both response_format and tools are present. This may cause unexpected behavior."
-                            );
-                        }
                     } catch (error) {
                         this.logger.error(
                             `[Adapter] Failed to convert response_format schema: ${error.message}`,
@@ -724,6 +744,20 @@ class FormatConverter {
             }
         }
 
+        this._finalizeGoogleRequest(googleRequest);
+        this.logger.info("[Adapter] OpenAI to Google translation complete.");
+        return { cleanModelName, googleRequest };
+    }
+
+    /**
+     * Common final processing for Gemini requests:
+     * 1. Inject force features (Search, URL Context)
+     * 2. Apply safety settings
+     * 3. Log final request body
+     * @param {object} googleRequest - The Gemini request object to finalize
+     * @private
+     */
+    _finalizeGoogleRequest(googleRequest) {
         // Force web search and URL context
         if (this.serverSystem.forceWebSearch || this.serverSystem.forceUrlContext) {
             if (!googleRequest.tools) {
@@ -763,14 +797,7 @@ class FormatConverter {
             { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
         ];
 
-        // [DEBUG] Log full request body for troubleshooting 400 errors
-        if (googleRequest.tools && googleRequest.tools.length > 0) {
-            this.logger.debug(
-                `[Adapter] Debug: Sanitized Openai tools = ${JSON.stringify(googleRequest.tools, null, 2)}`
-            );
-        }
-        this.logger.info("[Adapter] OpenAI to Google translation complete.");
-        return { cleanModelName, googleRequest };
+        this.logger.debug(`[Adapter] Debug: Final Gemini Request = ${JSON.stringify(googleRequest, null, 2)}`);
     }
 
     /**
@@ -780,7 +807,7 @@ class FormatConverter {
      * @param {object} streamState - Optional state object to track thought mode
      */
     translateGoogleToOpenAIStream(googleChunk, modelName = "gemini-2.5-flash-lite", streamState = null) {
-        this.logger.debug(`[Adapter] Debug: Received Google chunk: ${googleChunk}`);
+        this.logger.debug(`[Adapter] Debug: Received Google chunk for OpenAI: ${googleChunk}`);
 
         // Ensure streamState exists to properly track tool call indices
         if (!streamState) {
@@ -806,7 +833,7 @@ class FormatConverter {
         try {
             googleResponse = JSON.parse(jsonString);
         } catch (e) {
-            this.logger.warn(`[Adapter] Unable to parse Google JSON chunk: ${jsonString}`);
+            this.logger.warn(`[Adapter] Unable to parse Google JSON chunk for OpenAI: ${jsonString}`);
             return null;
         }
 
@@ -828,7 +855,7 @@ class FormatConverter {
         if (!candidate) {
             if (googleResponse.promptFeedback) {
                 this.logger.warn(
-                    `[Adapter] Google returned promptFeedback, may have been blocked: ${JSON.stringify(
+                    `[Adapter] Google returned promptFeedback for OpenAI stream, may have been blocked: ${JSON.stringify(
                         googleResponse.promptFeedback
                     )}`
                 );
@@ -1336,10 +1363,6 @@ class FormatConverter {
         // Flush remaining tool parts
         flushToolParts();
 
-        // [DEBUG] Log full content construction
-        this.logger.debug(`[Adapter] Debug: googleContents length = ${googleContents.length}`);
-        this.logger.debug(`[Adapter] Debug: googleContents = ${JSON.stringify(googleContents, null, 2)}`);
-
         // Build Google request
         const googleRequest = {
             contents: googleContents,
@@ -1377,7 +1400,7 @@ class FormatConverter {
 
         // Force thinking mode
         if (this.serverSystem.forceThinking && !thinkingConfig) {
-            this.logger.info("[Adapter] Force thinking enabled, injecting thinkingConfig for Claude request.");
+            this.logger.info("[Adapter] ⚠️ Force thinking enabled, injecting thinkingConfig for Claude request.");
             thinkingConfig = { includeThoughts: true };
         }
 
@@ -1409,8 +1432,12 @@ class FormatConverter {
                 }
 
                 if (schema) {
+                    this.logger.debug(`[Adapter] Debug: Converting Claude JSON Schema: ${JSON.stringify(schema)}`);
                     generationConfig.responseMimeType = "application/json";
                     generationConfig.responseSchema = this._convertSchemaToGemini(schema, true);
+                    this.logger.debug(
+                        `[Adapter] Debug: Converted Gemini JSON Schema: ${JSON.stringify(generationConfig.responseSchema)}`
+                    );
                     this.logger.info(
                         `[Adapter] Converted Claude output_format to Gemini responseSchema. Name: ${schemaName}`
                     );
@@ -1427,8 +1454,12 @@ class FormatConverter {
         if (claudeBody.output_config && claudeBody.output_config.format) {
             const format = claudeBody.output_config.format;
             if (format.type === "json_schema" && format.schema) {
+                this.logger.debug(`[Adapter] Debug: Converting Claude JSON Schema: ${JSON.stringify(format.schema)}`);
                 generationConfig.responseMimeType = "application/json";
                 generationConfig.responseSchema = this._convertSchemaToGemini(format.schema, true);
+                this.logger.debug(
+                    `[Adapter] Debug: Converted Gemini JSON Schema: ${JSON.stringify(generationConfig.responseSchema)}`
+                );
                 this.logger.info(
                     `[Adapter] Converted Claude output_config to Gemini responseSchema. Title: ${format.schema.title || "untitled"}`
                 );
@@ -1439,7 +1470,6 @@ class FormatConverter {
 
         // Convert Claude tools to Gemini functionDeclarations
         if (claudeBody.tools && Array.isArray(claudeBody.tools) && claudeBody.tools.length > 0) {
-            this.logger.debug(`[Adapter] Debug: original Claude tools = ${JSON.stringify(claudeBody.tools, null, 2)}`);
             let hasWebSearchTool = false;
             let hasUrlContextTool = false;
             const functionDeclarations = [];
@@ -1523,34 +1553,8 @@ class FormatConverter {
             );
         }
 
-        // Force web search and URL context
-        if (this.serverSystem.forceWebSearch || this.serverSystem.forceUrlContext) {
-            if (!googleRequest.tools) googleRequest.tools = [];
-            if (this.serverSystem.forceWebSearch && !googleRequest.tools.some(t => t.googleSearch)) {
-                googleRequest.tools.push({ googleSearch: {} });
-            }
-            if (this.serverSystem.forceUrlContext && !googleRequest.tools.some(t => t.urlContext)) {
-                googleRequest.tools.push({ urlContext: {} });
-            }
-        }
-
-        // Safety settings
-        googleRequest.safetySettings = [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        ];
-
+        this._finalizeGoogleRequest(googleRequest);
         this.logger.info("[Adapter] Claude to Google translation complete.");
-
-        // [DEBUG] Log full request body for troubleshooting
-        if (googleRequest.tools && googleRequest.tools.length > 0) {
-            this.logger.debug(
-                `[Adapter] Debug: Converted Gemini tools = ${JSON.stringify(googleRequest.tools, null, 2)}`
-            );
-        }
-
         return { cleanModelName, googleRequest };
     }
 
@@ -1561,7 +1565,12 @@ class FormatConverter {
      * @param {object} streamState - State object to track streaming progress
      */
     translateGoogleToClaudeStream(googleChunk, modelName = "gemini-2.5-flash-lite", streamState = null) {
+        this.logger.debug(`[Adapter] Debug: Received Google chunk for Claude: ${googleChunk}`);
+
         if (!streamState) {
+            this.logger.warn(
+                "[Adapter] streamState not provided, creating default state. This may cause issues with tool call tracking."
+            );
             streamState = {};
         }
         if (!googleChunk || googleChunk.trim() === "") {
@@ -1606,7 +1615,11 @@ class FormatConverter {
 
         if (!candidate) {
             if (googleResponse.promptFeedback) {
-                this.logger.warn(`[Adapter] Google returned promptFeedback for Claude stream`);
+                this.logger.warn(
+                    `[Adapter] Google returned promptFeedback for Claude stream, may have been blocked: ${JSON.stringify(
+                        googleResponse.promptFeedback
+                    )}`
+                );
             }
             return null;
         }

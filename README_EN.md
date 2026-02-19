@@ -35,7 +35,7 @@ A tool that wraps Google AI Studio web interface to provide OpenAI API, Gemini A
    - Launch the browser and navigate to AI Studio automatically
    - Save your authentication credentials locally
 
-   > 💡 **Tip:** If downloading the Camoufox browser fails or takes too long, you can [manually download it from here](https://github.com/daijro/camoufox/releases/tag/v135.0.1-beta.24), and set the environment variable `CAMOUFOX_EXECUTABLE_PATH` to the path of the browser executable (both absolute and relative paths are supported).
+   > 💡 **Tip:** If downloading the Camoufox browser fails or takes too long, you can manually download it from [here](https://github.com/daijro/camoufox/releases/tag/v135.0.1-beta.24), and set the environment variable `CAMOUFOX_EXECUTABLE_PATH` to the path of the browser executable (both absolute and relative paths are supported).
 
 3. Configure Environment Variables (Optional):
 
@@ -120,8 +120,6 @@ Stop the service:
 sudo docker compose down
 ```
 
-**Proxy Configuration (Optional):** If you need to use a proxy to access Google services, add `-e HTTP_PROXY=http://your-proxy:port -e HTTPS_PROXY=http://your-proxy:port` to the Docker command, or add these environment variables to your `docker-compose.yml`.
-
 ##### 🛠️ Option 3: Build from Source
 
 If you prefer to build the Docker image yourself, you can use the following commands:
@@ -158,7 +156,7 @@ After deployment, you need to add Google accounts using one of these methods:
 
 **Method 2: Upload Auth Files**
 
-- Run `npm run setup-auth` on your local machine to generate auth files
+- Run `npm run setup-auth` on your local machine to generate auth files (refer to steps 1 and 2 of [Run Directly](#-run-directly-windows--macos--linux)), the auth files are in `/configs/auth`
 - In the web console, click "Upload Auth" to upload the auth JSON file, or manually upload to the mounted `/path/to/auth` directory
 
 > 💡 **Tip**: You can also download auth files from an existing container and upload them to a new container. Click the "Download Auth" button for the corresponding account in the web console to download the auth file.
@@ -210,6 +208,7 @@ This endpoint forwards requests to the official Gemini API format endpoint.
 
 - `GET /v1/models`: List models.
 - `POST /v1/messages`: Chat message completions, supports non-streaming, real streaming, and fake streaming.
+- `POST /v1/messages/count_tokens`: Count tokens in the messages.
 
 > 📖 For detailed API usage examples, see: [API Usage Examples](docs/en/api-examples.md)
 
@@ -233,15 +232,18 @@ This endpoint forwards requests to the official Gemini API format endpoint.
 
 #### 🌐 Proxy Configuration
 
-| Variable                        | Description                                                                                                                                                                                               | Default   |
-| :------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------- |
-| `INITIAL_AUTH_INDEX`            | Initial authentication index to use on startup.                                                                                                                                                           | `0`       |
-| `ENABLE_AUTH_UPDATE`            | Whether to enable automatic auth credential updates. Defaults to enabled. The auth file will be automatically updated upon successful login/account switch and every 24 hours. Set to `false` to disable. | `true`    |
-| `MAX_RETRIES`                   | Maximum number of retries for failed requests (only effective for fake streaming and non-streaming).                                                                                                      | `3`       |
-| `RETRY_DELAY`                   | Delay between retries in milliseconds.                                                                                                                                                                    | `2000`    |
-| `SWITCH_ON_USES`                | Number of requests before automatically switching accounts (`0` to disable).                                                                                                                              | `40`      |
-| `FAILURE_THRESHOLD`             | Number of consecutive failures before switching accounts (`0` to disable).                                                                                                                                | `3`       |
-| `IMMEDIATE_SWITCH_STATUS_CODES` | HTTP status codes that trigger immediate account switching (comma-separated, set to empty to disable).                                                                                                    | `429,503` |
+| Variable                        | Description                                                                                                                                                                                                 | Default   |
+| :------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------- |
+| `INITIAL_AUTH_INDEX`            | Initial authentication index to use on startup.                                                                                                                                                             | `0`       |
+| `ENABLE_AUTH_UPDATE`            | Whether to enable automatic auth credential updates. Defaults to enabled. The auth file will be automatically updated upon successful login/account switch and every 24 hours. Set to `false` to disable.   | `true`    |
+| `MAX_RETRIES`                   | Maximum number of retries for failed requests (only effective for fake streaming and non-streaming).                                                                                                        | `3`       |
+| `RETRY_DELAY`                   | Delay between retries in milliseconds.                                                                                                                                                                      | `2000`    |
+| `SWITCH_ON_USES`                | Number of requests before automatically switching accounts (`0` to disable).                                                                                                                                | `40`      |
+| `FAILURE_THRESHOLD`             | Number of consecutive failures before switching accounts (`0` to disable).                                                                                                                                  | `3`       |
+| `IMMEDIATE_SWITCH_STATUS_CODES` | HTTP status codes that trigger immediate account switching (comma-separated, set to empty to disable).                                                                                                      | `429,503` |
+| `HTTP_PROXY`                    | HTTP proxy address for accessing Google services.                                                                                                                                                           | None      |
+| `HTTPS_PROXY`                   | HTTPS proxy address for accessing Google services.                                                                                                                                                          | None      |
+| `NO_PROXY`                      | Comma-separated list of addresses to bypass the proxy. The project automatically bypasses local addresses (localhost, 127.0.0.1 and 0.0.0.0), so manual local bypass configuration is usually not required. | None      |
 
 #### 🗒️ Other Configuration
 

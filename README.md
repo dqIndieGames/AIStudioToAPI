@@ -35,7 +35,7 @@
    - 启动浏览器并自动导航到 AI Studio
    - 在本地保存您的身份验证凭据
 
-   > 💡 **提示：** 如果下载 Camoufox 浏览器失败或等待太久，可以[自行点击此处下载](https://github.com/daijro/camoufox/releases/tag/v135.0.1-beta.24)，然后设置环境变量 `CAMOUFOX_EXECUTABLE_PATH` 为可执行文件的路径（支持绝对和相对路径）。
+   > 💡 **提示：** 如果下载 Camoufox 浏览器失败或等待太久，可以自行点击 [此处](https://github.com/daijro/camoufox/releases/tag/v135.0.1-beta.24) 下载，然后设置环境变量 `CAMOUFOX_EXECUTABLE_PATH` 为可执行文件的路径（支持绝对和相对路径）。
 
 3. 配置环境变量（可选）：
 
@@ -122,8 +122,6 @@ sudo docker compose logs -f
 sudo docker compose down
 ```
 
-**代理配置（可选）：** 如需使用代理访问 Google 服务，在 Docker 命令中添加 `-e HTTP_PROXY=http://your-proxy:port -e HTTPS_PROXY=http://your-proxy:port`，或在 `docker-compose.yml` 的 `environment` 中添加这两个环境变量。
-
 ##### 🛠️ 方式 3：从源码构建
 
 如果您希望自己构建 Docker 镜像，可以使用以下命令：
@@ -160,7 +158,7 @@ sudo docker compose down
 
 **方法 2：上传认证文件**
 
-- 在本地机器上运行 `npm run setup-auth` 生成认证文件
+- 在本地机器上运行 `npm run setup-auth` 生成认证文件（参考 [直接运行](#-直接运行windows--macos--linux) 的 1 和 2），认证文件在 `/configs/auth`
 - 在网页控制台，点击「上传 Auth」，上传 auth 的 JSON 文件，或手动上传到挂载的 `/path/to/auth` 目录
 
 > 💡 **提示**：您也可以从已有的容器下载 auth 文件，然后上传到新的容器。在网页控制台点击对应账号的「下载 Auth」按钮即可下载 auth 文件。
@@ -212,6 +210,7 @@ sudo docker compose down
 
 - `GET /v1/models`: 列出模型。
 - `POST /v1/messages`: 聊天消息补全，支持非流式、真流式和假流式。
+- `POST /v1/messages/count_tokens`: 计算消息中的 token 数量。
 
 > 📖 详细的 API 使用示例请参阅：[API 使用示例文档](docs/zh/api-examples.md)
 
@@ -244,6 +243,9 @@ sudo docker compose down
 | `SWITCH_ON_USES`                | 自动切换帐户前允许的请求次数（设为 `0` 禁用）。                                                                            | `40`      |
 | `FAILURE_THRESHOLD`             | 切换帐户前允许的连续失败次数（设为 `0` 禁用）。                                                                            | `3`       |
 | `IMMEDIATE_SWITCH_STATUS_CODES` | 触发立即切换帐户的 HTTP 状态码（逗号分隔，设为空值以禁用）。                                                               | `429,503` |
+| `HTTP_PROXY`                    | 用于访问 Google 服务的 HTTP 代理地址。                                                                                     | 无        |
+| `HTTPS_PROXY`                   | 用于访问 Google 服务的 HTTPS 代理地址。                                                                                    | 无        |
+| `NO_PROXY`                      | 不经过代理的地址列表（逗号分隔）。项目已内置自动绕过本地地址（localhost, 127.0.0.1, 0.0.0.0），通常无需手动配置本地绕过。  | 无        |
 
 #### 🗒️ 其他配置
 

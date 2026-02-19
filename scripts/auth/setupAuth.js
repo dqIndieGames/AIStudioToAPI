@@ -12,6 +12,9 @@ const os = require("os");
 const path = require("path");
 const readline = require("readline");
 
+// Load environment variables from .env file
+require("dotenv").config({ path: path.resolve(__dirname, "..", "..", ".env") });
+
 const DEFAULT_CAMOUFOX_VERSION = "135.0.1-beta.24";
 const GITHUB_RELEASE_TAG_PREFIX = "v";
 

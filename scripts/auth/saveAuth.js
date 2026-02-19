@@ -10,6 +10,9 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
+// Load environment variables from .env file
+require("dotenv").config({ path: path.resolve(__dirname, "..", "..", ".env") });
+
 // Initialize language from environment variable passed by setupAuth.js
 const lang = process.env.SETUP_AUTH_LANG || "zh";
 
@@ -29,6 +32,8 @@ const getDefaultBrowserExecutablePath = () => {
 const browserExecutablePath = process.env.CAMOUFOX_EXECUTABLE_PATH || getDefaultBrowserExecutablePath();
 const VALIDATION_LINE_THRESHOLD = 200; // Validation line threshold
 const CONFIG_DIR = "configs/auth"; // Authentication files directory
+
+const { parseProxyFromEnv } = require("../../src/utils/ProxyUtils");
 
 /**
  * Ensures that the specified directory exists, creating it if it doesn't.
@@ -105,12 +110,31 @@ const getNextAuthIndex = () => {
         process.exit(1);
     }
 
+    const proxyConfig = parseProxyFromEnv();
+    if (proxyConfig) {
+        const bypassText = proxyConfig.bypass ? `, bypass=${proxyConfig.bypass}` : "";
+        console.log(
+            getText(
+                `🌐  使用代理: ${proxyConfig.server}${bypassText}`,
+                `🌐  Using proxy: ${proxyConfig.server}${bypassText}`
+            )
+        );
+    } else {
+        console.log(
+            getText(
+                "🌐  未检测到代理环境变量 (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY)。如需代理请在运行前设置。",
+                "🌐  No proxy env detected (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY). Set it before running if needed."
+            )
+        );
+    }
+
     const browser = await firefox.launch({
         executablePath: browserExecutablePath,
         headless: false,
+        ...(proxyConfig ? { proxy: proxyConfig } : {}),
     });
 
-    const context = await browser.newContext();
+    const context = await browser.newContext(proxyConfig ? { proxy: proxyConfig } : {});
     const page = await context.newPage();
 
     console.log("");

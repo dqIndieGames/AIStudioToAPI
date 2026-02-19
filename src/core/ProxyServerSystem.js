@@ -587,6 +587,11 @@ class ProxyServerSystem extends EventEmitter {
             this.requestHandler.processClaudeRequest(req, res);
         });
 
+        // Claude API count tokens endpoint
+        app.post("/v1/messages/count_tokens", (req, res) => {
+            this.requestHandler.processClaudeCountTokens(req, res);
+        });
+
         // VNC WebSocket downgrade / missing headers handler
         // If Nginx or another proxy strips "Upgrade: websocket" headers, the request appears as a normal GET.
         // We intercept it here to prevent it from falling through to the Gemini proxy.
@@ -611,13 +616,34 @@ class ProxyServerSystem extends EventEmitter {
     }
 
     async _startWebSocketServer() {
-        this.wsServer = new WebSocket.Server({
-            host: this.config.host,
-            port: this.config.wsPort,
-        });
-        this.wsServer.on("connection", (ws, req) => {
-            this.connectionRegistry.addConnection(ws, {
-                address: req.socket.remoteAddress,
+        return new Promise((resolve, reject) => {
+            let isListening = false;
+
+            this.wsServer = new WebSocket.Server({
+                host: this.config.host,
+                port: this.config.wsPort,
+            });
+
+            this.wsServer.once("listening", () => {
+                isListening = true;
+                this.logger.info(
+                    `[System] WebSocket server is listening on ws://${this.config.host}:${this.config.wsPort}`
+                );
+                resolve();
+            });
+
+            this.wsServer.on("error", err => {
+                if (!isListening) {
+                    this.logger.error(`[System] WebSocket server failed to start: ${err.message}`);
+                    reject(err);
+                } else {
+                    this.logger.error(`[System] WebSocket server runtime error: ${err.message}`);
+                }
+            });
+            this.wsServer.on("connection", (ws, req) => {
+                this.connectionRegistry.addConnection(ws, {
+                    address: req.socket.remoteAddress,
+                });
             });
         });
     }
