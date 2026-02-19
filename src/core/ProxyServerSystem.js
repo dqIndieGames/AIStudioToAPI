@@ -499,14 +499,10 @@ class ProxyServerSystem extends EventEmitter {
 
             this.wsServer.on("error", err => {
                 if (!isListening) {
-                    this.logger.error(
-                        `[System] WebSocket server failed to start: ${err.message}`
-                    );
+                    this.logger.error(`[System] WebSocket server failed to start: ${err.message}`);
                     reject(err);
                 } else {
-                    this.logger.error(
-                        `[System] WebSocket server runtime error: ${err.message}`
-                    );
+                    this.logger.error(`[System] WebSocket server runtime error: ${err.message}`);
                 }
             });
             this.wsServer.on("connection", (ws, req) => {
