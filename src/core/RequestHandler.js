@@ -260,6 +260,15 @@ class RequestHandler {
             if (wasDirectRecovery && this.authSource.getRotationIndices().length > 1) {
                 this.logger.warn("⚠️ [System] Attempting to switch to alternative account...");
                 try {
+                    // Direct recovery path sets isSystemBusy=true manually.
+                    // Release it before calling switchToNextAuth() so AuthSwitcher can acquire its own lock.
+                    if (this.authSwitcher.isSystemBusy) {
+                        this.logger.info(
+                            "[System] Releasing direct recovery busy flag before alternative account switch."
+                        );
+                        this.authSwitcher.isSystemBusy = false;
+                    }
+
                     const result = await this.authSwitcher.switchToNextAuth();
                     if (!result.success) {
                         this.logger.error(`❌ [System] Failed to switch to alternative account: ${result.reason}`);
